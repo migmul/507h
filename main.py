@@ -15,7 +15,7 @@ from flask import (Flask, abort, g, jsonify, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.5"
+APP_VERSION = "0.5.1"
 
 BASE = Path(__file__).parent
 INSTANCE = BASE / "instance"
@@ -93,11 +93,7 @@ CREATE TABLE IF NOT EXISTS are_rights (
   fct_date TEXT NOT NULL,
   start_date TEXT NOT NULL,
   anniversary_date TEXT,
-  aj_brute_cents INTEGER CHECK (aj_brute_cents IS NULL OR aj_brute_cents > 0),
   aj_net_cents INTEGER CHECK (aj_net_cents IS NULL OR aj_net_cents > 0),
-  waiting_days INTEGER NOT NULL DEFAULT 7 CHECK (waiting_days BETWEEN 0 AND 7),
-  franchise_cp_days INTEGER NOT NULL DEFAULT 0 CHECK (franchise_cp_days BETWEEN 0 AND 60),
-  franchise_salary_days INTEGER NOT NULL DEFAULT 0 CHECK (franchise_salary_days BETWEEN 0 AND 365),
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
@@ -714,13 +710,9 @@ def build_overview(db, uid):
     days_left = (da - today).days
     status = "expired" if days_left < 0 else "soon" if days_left <= 15 else "active"
     total_days = (da - start).days + 1
-    franchises = r["waiting_days"] + r["franchise_cp_days"] + r["franchise_salary_days"]
 
     cur_tot = period_totals(db, uid, fct - timedelta(days=364), fct)
-    aj = None
-    if r["aj_brute_cents"] or r["aj_net_cents"]:
-        aj = {"brut": None if r["aj_brute_cents"] is None else r["aj_brute_cents"] / 100,
-              "net": None if r["aj_net_cents"] is None else r["aj_net_cents"] / 100}
+    aj_net = None if r["aj_net_cents"] is None else r["aj_net_cents"] / 100
 
     win_start = fct + timedelta(days=1)
     total = period_totals(db, uid, win_start, da)
@@ -736,12 +728,9 @@ def build_overview(db, uid):
         "exam_date": (da + timedelta(days=1)).isoformat(),
         "days_left": days_left, "status": status,
         "elapsed_pct": max(0, min(100, round((today - start).days / max(1, total_days) * 100))),
-        "indemnisation": {
-            "total_days": total_days, "waiting": r["waiting_days"],
-            "cp": r["franchise_cp_days"], "salary": r["franchise_salary_days"],
-            "max_days": max(0, total_days - franchises)},
+        "total_days": total_days,
         "current": {"period_start": (fct - timedelta(days=364)).isoformat(),
-                    "period_end": fct.isoformat(), "totals": cur_tot, "aj": aj},
+                    "period_end": fct.isoformat(), "totals": cur_tot, "aj_net": aj_net},
         "projection": {
             "window_start": win_start.isoformat(), "window_end": da.isoformat(),
             "hours_total": total["hours"], "hours_done": done["hours"],
@@ -749,11 +738,7 @@ def build_overview(db, uid):
             "hours_needed": round(needed, 1), "per_week": per_week},
         "settings": {
             "annexe": r["annexe"], "fct_date": r["fct_date"], "start_date": r["start_date"],
-            "anniversary_date": r["anniversary_date"],
-            "aj_brute": None if r["aj_brute_cents"] is None else r["aj_brute_cents"] / 100,
-            "aj_net": None if r["aj_net_cents"] is None else r["aj_net_cents"] / 100,
-            "waiting_days": r["waiting_days"], "franchise_cp_days": r["franchise_cp_days"],
-            "franchise_salary_days": r["franchise_salary_days"]},
+            "anniversary_date": r["anniversary_date"], "aj_net": aj_net},
     }
 
 
@@ -772,18 +757,6 @@ def parse_rights(d):
         except ValueError:
             raise ValueError(f"Date invalide : {key}")
 
-    def num(key, lo, hi, default):
-        v = d.get(key)
-        if v in (None, ""):
-            return default
-        try:
-            n = int(v)
-        except (TypeError, ValueError):
-            raise ValueError(f"Valeur invalide : {key}")
-        if not lo <= n <= hi:
-            raise ValueError(f"{key} doit être entre {lo} et {hi}")
-        return n
-
     try:
         annexe = int(d.get("annexe"))
     except (TypeError, ValueError):
@@ -797,15 +770,11 @@ def parse_rights(d):
         raise ValueError("Le début d'indemnisation doit suivre la fin de contrat")
     if da and da <= start:
         raise ValueError("La date anniversaire doit suivre le début d'indemnisation")
-    aj, ajn = to_cents(d.get("aj_brute")), to_cents(d.get("aj_net"))
-    for v in (aj, ajn):
-        if v is not None and not (0 < v <= 50000):
-            raise ValueError("AJ hors limites (0 à 500 €)")
-    if aj is not None and ajn is not None and ajn > aj:
-        raise ValueError("L'AJ nette ne peut pas dépasser l'AJ brute")
-    return (annexe, fct.isoformat(), start.isoformat(), da.isoformat() if da else None,
-            aj, ajn, num("waiting_days", 0, 7, 7), num("franchise_cp_days", 0, 60, 0),
-            num("franchise_salary_days", 0, 365, 0))
+    ajn = to_cents(d.get("aj_net"))
+    if ajn is not None and not (0 < ajn <= 50000):
+        raise ValueError("AJ hors limites (0 à 500 €)")
+    return (annexe, fct.isoformat(), start.isoformat(),
+            da.isoformat() if da else None, ajn)
 
 
 @app.get("/intermittence")
@@ -830,14 +799,10 @@ def save_intermittence():
     db, uid = get_db(), session["uid"]
     db.execute(
         "INSERT INTO are_rights(user_id, annexe, fct_date, start_date, anniversary_date,"
-        " aj_brute_cents, aj_net_cents, waiting_days, franchise_cp_days,"
-        " franchise_salary_days) VALUES (?,?,?,?,?,?,?,?,?,?)"
+        " aj_net_cents) VALUES (?,?,?,?,?,?)"
         " ON CONFLICT(user_id) DO UPDATE SET annexe=excluded.annexe,"
         " fct_date=excluded.fct_date, start_date=excluded.start_date,"
-        " anniversary_date=excluded.anniversary_date, aj_brute_cents=excluded.aj_brute_cents,"
-        " aj_net_cents=excluded.aj_net_cents, waiting_days=excluded.waiting_days,"
-        " franchise_cp_days=excluded.franchise_cp_days,"
-        " franchise_salary_days=excluded.franchise_salary_days,"
+        " anniversary_date=excluded.anniversary_date, aj_net_cents=excluded.aj_net_cents,"
         " updated_at=CURRENT_TIMESTAMP",
         (uid, *vals))
     db.commit()

@@ -3,16 +3,40 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.5.1] - 2026-09-30
+
+### Supprimé
+- Page Intermittence : AJ brute, franchise congés payés, franchise salaires et délai d'attente (formulaire, API et affichage). Les colonnes correspondantes (`aj_brute_cents`, `waiting_days`, `franchise_cp_days`, `franchise_salary_days`) restent en base des installations existantes mais ne sont plus utilisées.
+- Nombre maximal de jours indemnisables (il dépendait des franchises).
+
+### Modifié
+- L'allocation journalière affichée est l'AJ nette de la notification France Travail, saisie par l'utilisateur.
+- La carte « Période d'indemnisation » est simplifiée : début, date anniversaire et durée en jours.
+
+## [0.5] - 2026-09-30
+
+### Modifié
+- Tableau de bord : la barre de progression compte désormais les 12 derniers mois glissants tant qu'aucun droit n'est renseigné. Dès qu'un droit est renseigné, elle compte les heures postérieures à la fin de contrat (FCT) retenue, sans dépasser 12 mois glissants (les heures déjà utilisées pour ouvrir un droit ne sont pas réutilisables).
+- Le tableau de bord affiche la période prise en compte et la date anniversaire.
+- Les heures sont proratisées au jour pour les contrats à cheval sur la période (comme sur la page Intermittence).
+- Page Intermittence : l'allocation journalière affichée est celle de la notification France Travail, saisie par l'utilisateur.
+
+### Ajouté
+- Champ « AJ nette » (issu de la notification) sur la page Intermittence.
+- Migration automatique de la table `are_rights` (colonne `aj_net_cents`).
+
+### Supprimé
+- Toutes les estimations d'allocation : AJ brute calculée (A + B + C), AJ nette estimée, AJ projetée.
+- Options CSG et Alsace-Moselle (les colonnes `csg_rate` et `alsace_moselle` restent en base des installations existantes mais ne sont plus utilisées).
+
 ## [0.4] - 2026-09-30
 
 ### Ajouté
 - Page « Intermittence » (`/intermittence`) pour suivre son droit à l'assurance chômage (annexes 8 et 10).
-- Saisie du droit en cours : annexe, fin de contrat de travail (FCT) retenue, début d'indemnisation, date anniversaire (calculée à FCT + 12 mois, modifiable), AJ brute de la notification (optionnelle), délai d'attente, franchises congés payés et salaires, taux de CSG, régime local Alsace-Moselle.
+- Saisie du droit en cours : annexe, fin de contrat de travail (FCT) retenue, début d'indemnisation, date anniversaire (calculée à FCT + 12 mois, modifiable), AJ brute de la notification (optionnelle), délai d'attente, franchises congés payés et salaires.
 - Date anniversaire, jours restants, date d'examen (lendemain de la date anniversaire) et alerte à 15 jours ou en cas de droit expiré.
 - Nombre maximal de jours indemnisables (période d'indemnisation moins délai d'attente et franchises).
-- Allocation journalière brute estimée (formule A + B + C, plancher 38 € / 44 €, plafond 174,80 €) à partir des contrats saisis, avec détail des parties A, B et C.
-- Estimation de l'AJ nette (retraite complémentaire, CSG/CRDS, Alsace-Moselle), hors prélèvement à la source.
-- Projection des 507 h jusqu'à la date anniversaire : heures réalisées, heures prévues, heures restantes, rythme hebdomadaire nécessaire et AJ projetée.
+- Projection des 507 h jusqu'à la date anniversaire : heures réalisées, heures prévues, heures restantes et rythme hebdomadaire nécessaire.
 - Nouvelle table `are_rights` (supprimée avec le compte, incluse dans l'export des données).
 - Liens de navigation « Intermittence » sur le tableau de bord et la page du compte.
 
@@ -67,7 +91,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - Le formulaire de contrat n'est plus sur la page principale : il s'ouvre dans une fenêtre modale (`<dialog>`).
 
 ## Connu / à faire
-- Le calcul des 507 h ne proratise pas les plafonds mensuels (208 h / 250 h pour l'annexe 8) et ne gère ni les cachets (annexe 10) ni les heures assimilées.
-- Simulation mensuelle de l'ARE (jours non indemnisables, cumul avec salaires plafonné à 118 % du PMSS), calcul automatique de la franchise salaires et historique des droits : prévus pour une prochaine version.
+- Le calcul des 507 h n'applique pas les plafonds mensuels d'heures (208 h / 250 h pour l'annexe 8) et ne gère ni les cachets (annexe 10) ni les heures assimilées.
+- Simulation mensuelle de l'ARE (jours non indemnisables, cumul avec salaires plafonné à 118 % du PMSS) et historique des droits : prévus pour une prochaine version.
 - Pas de récupération de mot de passe (nécessite l'envoi d'e-mails) ni de vérification de l'adresse e-mail.
 - Limitation de tentatives en mémoire (1 seul worker gunicorn).
