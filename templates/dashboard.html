@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Mes contrats – 507h{% endblock %}
+{% block body %}
+<header class="topbar">
+  <h1>507<span>h</span></h1>
+  <button id="logout" class="ghost">Déconnexion</button>
+</header>
+<main class="container">
+  <section class="card">
+    <h2>Ma progression</h2>
+    <div class="progress"><div id="bar"></div></div>
+    <p><strong id="hours">0</strong> / 507 h
+      <span class="muted" id="range"></span></p>
+    <p class="muted small" id="remaining"></p>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Mes contrats</h2>
+      <button class="primary inline" id="add-btn" type="button">+ Ajouter un contrat</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Employeur</th><th>Mission</th><th>Dates</th>
+          <th class="num">Heures</th><th class="num">Brut</th><th class="num">Net</th>
+          <th>Docs</th><th></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="muted" id="empty" hidden>Aucun contrat pour l'instant.</p>
+  </section>
+</main>
+
+<dialog id="contract-dialog">
+  <form id="contract-form" novalidate>
+    <div class="card-head">
+      <h2 id="form-title">Ajouter un contrat</h2>
+      <button type="button" class="ghost" id="close-dialog" aria-label="Fermer">✕</button>
+    </div>
+    <input type="hidden" name="id">
+
+    <div class="full">
+      <label>Employeur
+        <input name="employer" maxlength="120" list="employers" autocomplete="off" required>
+      </label>
+      <datalist id="employers"></datalist>
+      <div id="employer-chips" class="chips" aria-label="Employeurs récents"></div>
+    </div>
+
+    <label>Mission <input name="mission" maxlength="160" required></label>
+    <label>Heures <input name="hours" type="number" step="0.5" min="0.5" required></label>
+    <label>Début <input name="start_date" type="date" required></label>
+    <label>Fin <input name="end_date" type="date" required></label>
+    <label>Brut (€) <input name="gross" type="number" step="0.01" min="0" required></label>
+    <label>Net (€) <input name="net" type="number" step="0.01" min="0" required></label>
+
+    <label class="full">Commentaire (optionnel)
+      <textarea name="comment" rows="3" maxlength="500"></textarea>
+    </label>
+
+    <fieldset class="full">
+      <legend>Documents PDF (optionnel, 10 Mo max chacun)</legend>
+      <label>Contrat de travail <input type="file" name="file_contrat" accept="application/pdf,.pdf"></label>
+      <label>AEM <input type="file" name="file_aem" accept="application/pdf,.pdf"></label>
+      <label>Bulletin de paie <input type="file" name="file_bulletin" accept="application/pdf,.pdf"></label>
+      <ul id="existing-docs" class="docs"></ul>
+    </fieldset>
+
+    <p class="error full" id="form-error" role="alert"></p>
+    <div class="row full">
+      <button class="primary inline" type="submit" id="save-btn">Enregistrer</button>
+      <button class="ghost" type="button" id="cancel">Annuler</button>
+    </div>
+  </form>
+</dialog>
+
+<footer class="footer muted small">507h v{{ app_version }}</footer>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}
