@@ -49,26 +49,16 @@ function render(o) {
         (o.anniversary_overridden ? ` Date saisie manuellement (calculée : ${fdate(o.anniversary_auto)}).` : '');
 
     const cur = o.current, aj = cur.aj;
+    $('#aj-brut').textContent = aj && aj.brut != null ? `${eur.format(aj.brut)} brut / jour` : '–';
+    $('#aj-net').textContent = aj && aj.net != null ? `${eur.format(aj.net)} net / jour` : '';
     const rows = [];
-    if (aj) {
-        $('#aj-brut').textContent = `${eur.format(aj.brut)} brut / jour`;
-        $('#aj-net').textContent = `≈ ${eur.format(aj.net)} net / jour (avant prélèvement à la source)`;
-        rows.push(['Source', aj.source === 'notification' ? 'Notification France Travail' : 'Estimation depuis mes contrats']);
-        if (aj.a !== undefined) rows.push(['Partie A (salaires)', eur.format(aj.a)],
-            ['Partie B (heures)', eur.format(aj.b)], ['Partie C (fixe)', eur.format(aj.c)]);
-        rows.push(['Retraite complémentaire', '− ' + eur.format(aj.retraite)],
-            ['CSG + CRDS', '− ' + eur.format(aj.csg_crds)]);
-        if (aj.alsace) rows.push(['Alsace-Moselle', '− ' + eur.format(aj.alsace)]);
-    } else {
-        $('#aj-brut').textContent = '–';
-        $('#aj-net').textContent = '';
-    }
+    if (aj) rows.push(['Source', 'Notification France Travail']);
     rows.push(['Période de référence', `${fdate(cur.period_start)} → ${fdate(cur.period_end)}`],
-        ['Heures / salaires bruts', `${fh(cur.totals.hours)} · ${eur.format(cur.totals.gross)}`]);
+        ['Heures / salaires bruts saisis', `${fh(cur.totals.hours)} · ${eur.format(cur.totals.gross)}`]);
     kv($('#aj-detail'), rows);
     $('#aj-note').textContent = !aj
-        ? "Ajoute les contrats de la période de référence, ou l'AJ de ta notification, pour obtenir un montant."
-        : cur.totals.missing_gross ? `${cur.totals.missing_gross} contrat(s) sans brut dans la période : l'estimation est sous-évaluée.` : '';
+        ? "Renseigne l'AJ de ta notification avec le bouton « Modifier »."
+        : cur.totals.missing_gross ? `${cur.totals.missing_gross} contrat(s) sans brut dans la période : le total des salaires est incomplet.` : '';
 
     const i = o.indemnisation;
     kv($('#indem-detail'), [
@@ -89,7 +79,6 @@ function render(o) {
         ['Heures réalisées', fh(p.hours_done)],
         ['Heures prévues (contrats à venir)', fh(p.hours_planned)],
         ['Rythme nécessaire', p.per_week ? `${fh(p.per_week)} / semaine` : '–'],
-        ['AJ projetée', p.aj ? `${eur.format(p.aj.brut)} brut · ≈ ${eur.format(p.aj.net)} net` : 'Disponible à 507 h'],
     ]);
     $('#proj-note').textContent = p.missing_gross
         ? `${p.missing_gross} contrat(s) sans brut : l'AJ projetée est sous-évaluée.` : '';
@@ -105,11 +94,10 @@ function openDialog() {
         form.elements.start_date.value = s.start_date;
         form.elements.anniversary_date.value = s.anniversary_date ?? '';
         form.elements.aj_brute.value = s.aj_brute ?? '';
+        form.elements.aj_net.value = s.aj_net ?? '';
         form.elements.waiting_days.value = s.waiting_days;
         form.elements.franchise_cp_days.value = s.franchise_cp_days;
         form.elements.franchise_salary_days.value = s.franchise_salary_days;
-        form.elements.csg_rate.value = String(s.csg_rate);
-        form.elements.alsace_moselle.checked = s.alsace_moselle;
     }
     $('#reset-btn').hidden = !s;
     dialog.showModal();
@@ -130,7 +118,6 @@ dialog.addEventListener('click', (e) => {
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(form));
-    f.alsace_moselle = form.elements.alsace_moselle.checked;
     $('#save-btn').disabled = true;
     try {
         overview = (await api('/api/intermittence', 'PUT', f)).overview;

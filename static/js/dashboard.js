@@ -110,12 +110,17 @@ function render() {
 }
 
 async function loadSummary() {
-    const s = await api('/api/summary');
-    $('#bar').style.width = Math.min(100, (s.hours / s.target) * 100) + '%';
-    $('#hours').textContent = s.hours;
-    $('#range').textContent = ` (du ${fdate(s.window_start)} au ${fdate(s.window_end)})`;
-    const left = Math.max(0, s.target - s.hours);
-    $('#remaining').textContent = left > 0 ? `Il te manque ${left} h.` : 'Seuil des 507 h atteint 🎉';
+  const s = await api('/api/summary');
+  $('#bar').style.width = Math.min(100, (s.hours / s.target) * 100) + '%';
+  $('#hours').textContent = Math.round(s.hours * 10) / 10;
+  $('#range').textContent = ` (du ${fdate(s.window_start)} au ${fdate(s.window_end)})`;
+  const left = Math.max(0, s.target - s.hours);
+  $('#remaining').textContent = left > 0
+    ? `Il te manque ${Math.round(left * 10) / 10} h.` : 'Seuil des 507 h atteint 🎉';
+  $('#mode').textContent = s.mode === 'since_fct'
+    ? `Heures depuis ta fin de contrat retenue du ${fdate(s.fct_date)}` +
+      (s.anniversary_date ? ` · date anniversaire le ${fdate(s.anniversary_date)}` : '')
+    : "12 derniers mois glissants (aucun droit renseigné sur la page Intermittence).";
 }
 
 async function load() {

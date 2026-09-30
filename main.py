@@ -15,7 +15,7 @@ from flask import (Flask, abort, g, jsonify, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.4"
+APP_VERSION = "0.5"
 
 BASE = Path(__file__).parent
 INSTANCE = BASE / "instance"
@@ -94,11 +94,10 @@ CREATE TABLE IF NOT EXISTS are_rights (
   start_date TEXT NOT NULL,
   anniversary_date TEXT,
   aj_brute_cents INTEGER CHECK (aj_brute_cents IS NULL OR aj_brute_cents > 0),
+  aj_net_cents INTEGER CHECK (aj_net_cents IS NULL OR aj_net_cents > 0),
   waiting_days INTEGER NOT NULL DEFAULT 7 CHECK (waiting_days BETWEEN 0 AND 7),
   franchise_cp_days INTEGER NOT NULL DEFAULT 0 CHECK (franchise_cp_days BETWEEN 0 AND 60),
   franchise_salary_days INTEGER NOT NULL DEFAULT 0 CHECK (franchise_salary_days BETWEEN 0 AND 365),
-  csg_rate REAL NOT NULL DEFAULT 6.2 CHECK (csg_rate IN (0, 3.8, 6.2)),
-  alsace_moselle INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
@@ -137,6 +136,10 @@ def migrate():
             CREATE INDEX IF NOT EXISTS idx_contracts_user_end ON contracts(user_id, end_date);
             COMMIT;
             """)
+        rcols = {r[1] for r in c.execute("PRAGMA table_info(are_rights)")}
+        if "aj_net_cents" not in rcols:
+            c.execute("ALTER TABLE are_rights ADD COLUMN aj_net_cents INTEGER "
+                      "CHECK (aj_net_cents IS NULL OR aj_net_cents > 0)")
 
 
 migrate()
@@ -537,14 +540,22 @@ def delete_document(did):
 @app.get("/api/summary")
 @login_required
 def summary():
+    db, uid = get_db(), session["uid"]
     today = date.today()
-    start = today - timedelta(days=364)
-    row = get_db().execute(
-        "SELECT COALESCE(SUM(hours),0) AS h, COUNT(*) AS n FROM contracts"
-        " WHERE user_id=? AND end_date BETWEEN ? AND ?",
-        (session["uid"], start.isoformat(), today.isoformat())).fetchone()
-    return jsonify(hours=row["h"], contracts=row["n"], target=507,
-                   window_start=start.isoformat(), window_end=today.isoformat())
+    start, mode = today - timedelta(days=364), "rolling"
+    fct_date = da = None
+    r = db.execute("SELECT fct_date, anniversary_date FROM are_rights WHERE user_id=?",
+                   (uid,)).fetchone()
+    if r:
+        fct = date.fromisoformat(r["fct_date"])
+        fct_date = fct.isoformat()
+        da = r["anniversary_date"] or add_year(fct).isoformat()
+        if fct + timedelta(days=1) > start:     # heures déjà utilisées : exclues
+            start, mode = fct + timedelta(days=1), "since_fct"
+    t = period_totals(db, uid, start, today)
+    return jsonify(hours=t["hours"], contracts=t["contracts"], target=HOURS_TARGET,
+                   window_start=start.isoformat(), window_end=today.isoformat(),
+                   mode=mode, fct_date=fct_date, anniversary_date=da)
 
 # ---------- API compte ----------
 def bump_sessions(db, uid):
@@ -658,14 +669,7 @@ def delete_account():
     return jsonify(ok=True)
 
 # ---------- Intermittence : règles ARE ----------
-# À revoir à chaque revalorisation Unédic (1er juillet) : valeurs au 30/09/2026.
-AJ_BASE = 31.96          # AJ minimale (gelée au 1er juillet 2026)
-AJ_MAX = 174.80          # plafond (guide France Travail) - à vérifier
-AJ_FLOOR = {8: 38.0, 10: 44.0}
-SMIC_J = 61.0            # SMIC journalier brut, garde-fou CSG/CRDS
-RETRAITE_RATE = 0.0093   # participation retraite complémentaire (0,93 % du SJM)
 HOURS_TARGET = 507
-
 
 def add_year(d):
     try:
@@ -698,41 +702,6 @@ def period_totals(db, uid, start, end):
             "contracts": n, "missing_gross": missing}
 
 
-def compute_aj(annexe, sr, nht):
-    if annexe == 8:
-        a = AJ_BASE * (0.42 * min(sr, 14400) + 0.05 * max(sr - 14400, 0)) / 5000
-        b = AJ_BASE * (0.26 * min(nht, 720) + 0.08 * max(nht - 720, 0)) / 507
-        c = AJ_BASE * 0.40
-    else:
-        a = AJ_BASE * (0.36 * min(sr, 13700) + 0.05 * max(sr - 13700, 0)) / 5000
-        b = AJ_BASE * (0.26 * min(nht, 690) + 0.08 * max(nht - 690, 0)) / 507
-        c = AJ_BASE * 0.70
-    brut = max(AJ_FLOOR[annexe], min(a + b + c, AJ_MAX))
-    return {"a": round(a, 2), "b": round(b, 2), "c": round(c, 2), "brut": round(brut, 2)}
-
-
-def compute_net(annexe, brut, sr, nht, csg_rate, alsace):
-    """Estimation : hors prélèvement à la source."""
-    sjm = sr / (nht / (8 if annexe == 8 else 10)) if nht > 0 else 0
-    retraite = min(RETRAITE_RATE * sjm, brut - AJ_BASE) if brut > AJ_BASE else 0
-    taxes = 0.0
-    if brut > 62:
-        taxes = brut * 0.9825 * (csg_rate + 0.5) / 100
-        taxes = min(taxes, max(0.0, brut - retraite - SMIC_J))
-    als = brut * 0.015 if (alsace and brut > 62) else 0.0
-    return {"retraite": round(retraite, 2), "csg_crds": round(taxes, 2),
-            "alsace": round(als, 2), "net": round(brut - retraite - taxes - als, 2)}
-
-
-def aj_estimate(r, totals):
-    if totals["hours"] <= 0:
-        return None
-    calc = compute_aj(r["annexe"], totals["gross"], totals["hours"])
-    net = compute_net(r["annexe"], calc["brut"], totals["gross"], totals["hours"],
-                      r["csg_rate"], bool(r["alsace_moselle"]))
-    return {"source": "estimation", **calc, **net}
-
-
 def build_overview(db, uid):
     r = db.execute("SELECT * FROM are_rights WHERE user_id=?", (uid,)).fetchone()
     if not r:
@@ -748,13 +717,10 @@ def build_overview(db, uid):
     franchises = r["waiting_days"] + r["franchise_cp_days"] + r["franchise_salary_days"]
 
     cur_tot = period_totals(db, uid, fct - timedelta(days=364), fct)
-    if r["aj_brute_cents"]:
-        brut = r["aj_brute_cents"] / 100
-        cur_aj = {"source": "notification", "brut": brut,
-                  **compute_net(r["annexe"], brut, cur_tot["gross"], cur_tot["hours"],
-                                r["csg_rate"], bool(r["alsace_moselle"]))}
-    else:
-        cur_aj = aj_estimate(r, cur_tot)
+    aj = None
+    if r["aj_brute_cents"] or r["aj_net_cents"]:
+        aj = {"brut": None if r["aj_brute_cents"] is None else r["aj_brute_cents"] / 100,
+              "net": None if r["aj_net_cents"] is None else r["aj_net_cents"] / 100}
 
     win_start = fct + timedelta(days=1)
     total = period_totals(db, uid, win_start, da)
@@ -775,21 +741,19 @@ def build_overview(db, uid):
             "cp": r["franchise_cp_days"], "salary": r["franchise_salary_days"],
             "max_days": max(0, total_days - franchises)},
         "current": {"period_start": (fct - timedelta(days=364)).isoformat(),
-                    "period_end": fct.isoformat(), "totals": cur_tot, "aj": cur_aj},
+                    "period_end": fct.isoformat(), "totals": cur_tot, "aj": aj},
         "projection": {
             "window_start": win_start.isoformat(), "window_end": da.isoformat(),
             "hours_total": total["hours"], "hours_done": done["hours"],
             "hours_planned": round(total["hours"] - done["hours"], 2),
-            "hours_needed": round(needed, 1), "per_week": per_week,
-            "missing_gross": total["missing_gross"],
-            "aj": aj_estimate(r, total) if total["hours"] >= HOURS_TARGET else None},
+            "hours_needed": round(needed, 1), "per_week": per_week},
         "settings": {
             "annexe": r["annexe"], "fct_date": r["fct_date"], "start_date": r["start_date"],
             "anniversary_date": r["anniversary_date"],
             "aj_brute": None if r["aj_brute_cents"] is None else r["aj_brute_cents"] / 100,
+            "aj_net": None if r["aj_net_cents"] is None else r["aj_net_cents"] / 100,
             "waiting_days": r["waiting_days"], "franchise_cp_days": r["franchise_cp_days"],
-            "franchise_salary_days": r["franchise_salary_days"],
-            "csg_rate": r["csg_rate"], "alsace_moselle": bool(r["alsace_moselle"])},
+            "franchise_salary_days": r["franchise_salary_days"]},
     }
 
 
@@ -833,19 +797,15 @@ def parse_rights(d):
         raise ValueError("Le début d'indemnisation doit suivre la fin de contrat")
     if da and da <= start:
         raise ValueError("La date anniversaire doit suivre le début d'indemnisation")
-    aj = to_cents(d.get("aj_brute"))
-    if aj is not None and not (0 < aj <= 50000):
-        raise ValueError("AJ brute hors limites (0 à 500 €)")
-    try:
-        csg = float(d.get("csg_rate", 6.2))
-    except (TypeError, ValueError):
-        raise ValueError("Taux de CSG invalide")
-    if csg not in (0.0, 3.8, 6.2):
-        raise ValueError("Taux de CSG invalide")
-    alsace = 1 if d.get("alsace_moselle") in (True, 1, "1", "true", "on") else 0
-    return (annexe, fct.isoformat(), start.isoformat(), da.isoformat() if da else None, aj,
-            num("waiting_days", 0, 7, 7), num("franchise_cp_days", 0, 60, 0),
-            num("franchise_salary_days", 0, 365, 0), csg, alsace)
+    aj, ajn = to_cents(d.get("aj_brute")), to_cents(d.get("aj_net"))
+    for v in (aj, ajn):
+        if v is not None and not (0 < v <= 50000):
+            raise ValueError("AJ hors limites (0 à 500 €)")
+    if aj is not None and ajn is not None and ajn > aj:
+        raise ValueError("L'AJ nette ne peut pas dépasser l'AJ brute")
+    return (annexe, fct.isoformat(), start.isoformat(), da.isoformat() if da else None,
+            aj, ajn, num("waiting_days", 0, 7, 7), num("franchise_cp_days", 0, 60, 0),
+            num("franchise_salary_days", 0, 365, 0))
 
 
 @app.get("/intermittence")
@@ -870,14 +830,15 @@ def save_intermittence():
     db, uid = get_db(), session["uid"]
     db.execute(
         "INSERT INTO are_rights(user_id, annexe, fct_date, start_date, anniversary_date,"
-        " aj_brute_cents, waiting_days, franchise_cp_days, franchise_salary_days,"
-        " csg_rate, alsace_moselle) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+        " aj_brute_cents, aj_net_cents, waiting_days, franchise_cp_days,"
+        " franchise_salary_days) VALUES (?,?,?,?,?,?,?,?,?,?)"
         " ON CONFLICT(user_id) DO UPDATE SET annexe=excluded.annexe,"
         " fct_date=excluded.fct_date, start_date=excluded.start_date,"
         " anniversary_date=excluded.anniversary_date, aj_brute_cents=excluded.aj_brute_cents,"
-        " waiting_days=excluded.waiting_days, franchise_cp_days=excluded.franchise_cp_days,"
-        " franchise_salary_days=excluded.franchise_salary_days, csg_rate=excluded.csg_rate,"
-        " alsace_moselle=excluded.alsace_moselle, updated_at=CURRENT_TIMESTAMP",
+        " aj_net_cents=excluded.aj_net_cents, waiting_days=excluded.waiting_days,"
+        " franchise_cp_days=excluded.franchise_cp_days,"
+        " franchise_salary_days=excluded.franchise_salary_days,"
+        " updated_at=CURRENT_TIMESTAMP",
         (uid, *vals))
     db.commit()
     return jsonify(overview=build_overview(db, uid))

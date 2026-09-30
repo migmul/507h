@@ -68,21 +68,16 @@
             <input type="date" name="anniversary_date"></label>
         <label>AJ brute de la notification, € (optionnel)
             <input type="number" name="aj_brute" step="0.01" min="0"></label>
+        <label>AJ nette de la notification, € (optionnel)
+            <input type="number" name="aj_net" step="0.01" min="0"></label>
         <label>Délai d'attente (jours)
             <input type="number" name="waiting_days" min="0" max="7" value="7"></label>
         <label>Franchise congés payés (jours)
             <input type="number" name="franchise_cp_days" min="0" max="60" value="0"></label>
         <label>Franchise salaires (jours)
             <input type="number" name="franchise_salary_days" min="0" max="365" value="0"></label>
-        <label>CSG
-            <select name="csg_rate">
-                <option value="6.2">Taux plein (6,2 %)</option>
-                <option value="3.8">Taux réduit (3,8 %)</option>
-                <option value="0">Exonéré</option>
-            </select></label>
-        <label class="check"><input type="checkbox" name="alsace_moselle"> Régime local Alsace-Moselle (+1,5 %)</label>
-        <p class="muted small full">Les franchises figurent sur ta notification d'admission. Laisse l'AJ vide pour l'estimer depuis tes contrats.</p>
-        <p class="error full" id="form-error" role="alert"></p>
+        <p class="muted small full">Ces valeurs figurent sur ta notification d'admission.</p>
+        <p class="muted small">Les montants d'allocation affichés sont ceux que tu saisis depuis ta notification France Travail. Les cachets, heures assimilées et plafonds mensuels d'heures ne sont pas pris en compte dans le décompte.</p>        <p class="error full" id="form-error" role="alert"></p>
         <div class="row full">
             <button class="primary inline" type="submit" id="save-btn">Enregistrer</button>
             <button class="ghost" type="button" id="cancel">Annuler</button>
