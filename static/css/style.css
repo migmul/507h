@@ -68,3 +68,19 @@ a.btn:hover { border-color:var(--accent); }
 .msg.ok { color:#5ad19a; }
 .danger-zone { border-color:var(--danger); }
 .danger-btn { background:var(--danger); border-color:var(--danger); }
+
+.big { font-size:2rem; font-weight:700; margin:.25rem 0; }
+.inner { padding:0; max-width:none; }
+.badge { display:inline-block; padding:.15rem .7rem; border-radius:99px; font-size:.85rem;
+         background:var(--bg); border:1px solid var(--border); margin:.25rem 0 .75rem; }
+.badge.active { color:#5ad19a; border-color:#5ad19a; }
+.badge.soon { color:#f5b942; border-color:#f5b942; }
+.badge.expired { color:var(--danger); border-color:var(--danger); }
+.progress > div { height:100%; width:0; background:var(--accent); transition:width .4s; }
+.kv { list-style:none; padding:0; margin:.5rem 0; }
+.kv li { display:flex; justify-content:space-between; gap:1rem; padding:.3rem 0; border-bottom:1px solid var(--border); }
+.kv .k { color:var(--muted); }
+label.check { display:flex; gap:.5rem; align-items:center; color:var(--text); }
+label.check input { width:auto; margin:0; }
+select { width:100%; padding:.6rem; margin-top:.25rem; background:var(--bg); color:var(--text);
+         border:1px solid var(--border); border-radius:8px; font:inherit; }

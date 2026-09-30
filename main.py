@@ -11,12 +11,11 @@ from functools import wraps
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
-from flask import (Flask, abort, g, jsonify, redirect, render_template,
-                   request, send_file, session, url_for)
+from flask import (Flask, abort, g, jsonify, redirect, render_template, request, send_file, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.3"
+APP_VERSION = "0.4"
 
 BASE = Path(__file__).parent
 INSTANCE = BASE / "instance"
@@ -88,6 +87,20 @@ CREATE TABLE IF NOT EXISTS documents (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_documents_contract ON documents(contract_id);
+CREATE TABLE IF NOT EXISTS are_rights (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  annexe INTEGER NOT NULL CHECK (annexe IN (8, 10)),
+  fct_date TEXT NOT NULL,
+  start_date TEXT NOT NULL,
+  anniversary_date TEXT,
+  aj_brute_cents INTEGER CHECK (aj_brute_cents IS NULL OR aj_brute_cents > 0),
+  waiting_days INTEGER NOT NULL DEFAULT 7 CHECK (waiting_days BETWEEN 0 AND 7),
+  franchise_cp_days INTEGER NOT NULL DEFAULT 0 CHECK (franchise_cp_days BETWEEN 0 AND 60),
+  franchise_salary_days INTEGER NOT NULL DEFAULT 0 CHECK (franchise_salary_days BETWEEN 0 AND 365),
+  csg_rate REAL NOT NULL DEFAULT 6.2 CHECK (csg_rate IN (0, 3.8, 6.2)),
+  alsace_moselle INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -614,6 +627,7 @@ def export_account():
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("donnees.json", json.dumps(
             {"version": APP_VERSION, "email": u["email"], "created_at": u["created_at"],
+             "droit_are": (build_overview(db, uid) or {}).get("settings"),
              "contracts": contracts}, ensure_ascii=False, indent=2))
         for d in docs:
             try:
@@ -641,6 +655,240 @@ def delete_account():
     db.commit()
     shutil.rmtree(UPLOAD_DIR / str(uid), ignore_errors=True)
     session.clear()
+    return jsonify(ok=True)
+
+# ---------- Intermittence : règles ARE ----------
+# À revoir à chaque revalorisation Unédic (1er juillet) : valeurs au 30/09/2026.
+AJ_BASE = 31.96          # AJ minimale (gelée au 1er juillet 2026)
+AJ_MAX = 174.80          # plafond (guide France Travail) - à vérifier
+AJ_FLOOR = {8: 38.0, 10: 44.0}
+SMIC_J = 61.0            # SMIC journalier brut, garde-fou CSG/CRDS
+RETRAITE_RATE = 0.0093   # participation retraite complémentaire (0,93 % du SJM)
+HOURS_TARGET = 507
+
+
+def add_year(d):
+    try:
+        return d.replace(year=d.year + 1)
+    except ValueError:          # 29 février
+        return d.replace(year=d.year + 1, day=28)
+
+
+def period_totals(db, uid, start, end):
+    """Heures et salaires bruts des contrats sur [start, end], proratisés au jour."""
+    zero = {"hours": 0.0, "gross": 0.0, "contracts": 0, "missing_gross": 0}
+    if start > end:
+        return zero
+    hours = gross = 0.0
+    missing = n = 0
+    rows = db.execute(
+        "SELECT hours, start_date, end_date, gross_cents FROM contracts"
+        " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
+        (uid, start.isoformat(), end.isoformat()))
+    for r in rows:
+        s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
+        ratio = ((min(e, end) - max(s, start)).days + 1) / ((e - s).days + 1)
+        hours += r["hours"] * ratio
+        if r["gross_cents"] is None:
+            missing += 1
+        else:
+            gross += r["gross_cents"] / 100 * ratio
+        n += 1
+    return {"hours": round(hours, 2), "gross": round(gross, 2),
+            "contracts": n, "missing_gross": missing}
+
+
+def compute_aj(annexe, sr, nht):
+    if annexe == 8:
+        a = AJ_BASE * (0.42 * min(sr, 14400) + 0.05 * max(sr - 14400, 0)) / 5000
+        b = AJ_BASE * (0.26 * min(nht, 720) + 0.08 * max(nht - 720, 0)) / 507
+        c = AJ_BASE * 0.40
+    else:
+        a = AJ_BASE * (0.36 * min(sr, 13700) + 0.05 * max(sr - 13700, 0)) / 5000
+        b = AJ_BASE * (0.26 * min(nht, 690) + 0.08 * max(nht - 690, 0)) / 507
+        c = AJ_BASE * 0.70
+    brut = max(AJ_FLOOR[annexe], min(a + b + c, AJ_MAX))
+    return {"a": round(a, 2), "b": round(b, 2), "c": round(c, 2), "brut": round(brut, 2)}
+
+
+def compute_net(annexe, brut, sr, nht, csg_rate, alsace):
+    """Estimation : hors prélèvement à la source."""
+    sjm = sr / (nht / (8 if annexe == 8 else 10)) if nht > 0 else 0
+    retraite = min(RETRAITE_RATE * sjm, brut - AJ_BASE) if brut > AJ_BASE else 0
+    taxes = 0.0
+    if brut > 62:
+        taxes = brut * 0.9825 * (csg_rate + 0.5) / 100
+        taxes = min(taxes, max(0.0, brut - retraite - SMIC_J))
+    als = brut * 0.015 if (alsace and brut > 62) else 0.0
+    return {"retraite": round(retraite, 2), "csg_crds": round(taxes, 2),
+            "alsace": round(als, 2), "net": round(brut - retraite - taxes - als, 2)}
+
+
+def aj_estimate(r, totals):
+    if totals["hours"] <= 0:
+        return None
+    calc = compute_aj(r["annexe"], totals["gross"], totals["hours"])
+    net = compute_net(r["annexe"], calc["brut"], totals["gross"], totals["hours"],
+                      r["csg_rate"], bool(r["alsace_moselle"]))
+    return {"source": "estimation", **calc, **net}
+
+
+def build_overview(db, uid):
+    r = db.execute("SELECT * FROM are_rights WHERE user_id=?", (uid,)).fetchone()
+    if not r:
+        return None
+    today = date.today()
+    fct = date.fromisoformat(r["fct_date"])
+    start = date.fromisoformat(r["start_date"])
+    da_auto = add_year(fct)
+    da = date.fromisoformat(r["anniversary_date"]) if r["anniversary_date"] else da_auto
+    days_left = (da - today).days
+    status = "expired" if days_left < 0 else "soon" if days_left <= 15 else "active"
+    total_days = (da - start).days + 1
+    franchises = r["waiting_days"] + r["franchise_cp_days"] + r["franchise_salary_days"]
+
+    cur_tot = period_totals(db, uid, fct - timedelta(days=364), fct)
+    if r["aj_brute_cents"]:
+        brut = r["aj_brute_cents"] / 100
+        cur_aj = {"source": "notification", "brut": brut,
+                  **compute_net(r["annexe"], brut, cur_tot["gross"], cur_tot["hours"],
+                                r["csg_rate"], bool(r["alsace_moselle"]))}
+    else:
+        cur_aj = aj_estimate(r, cur_tot)
+
+    win_start = fct + timedelta(days=1)
+    total = period_totals(db, uid, win_start, da)
+    done = period_totals(db, uid, win_start, min(da, today))
+    needed = max(0.0, HOURS_TARGET - total["hours"])
+    per_week = needed / (days_left / 7) if days_left > 0 and needed > 0 else None
+
+    return {
+        "annexe": r["annexe"],
+        "fct_date": fct.isoformat(), "start_date": start.isoformat(),
+        "anniversary_date": da.isoformat(), "anniversary_auto": da_auto.isoformat(),
+        "anniversary_overridden": bool(r["anniversary_date"]),
+        "exam_date": (da + timedelta(days=1)).isoformat(),
+        "days_left": days_left, "status": status,
+        "elapsed_pct": max(0, min(100, round((today - start).days / max(1, total_days) * 100))),
+        "indemnisation": {
+            "total_days": total_days, "waiting": r["waiting_days"],
+            "cp": r["franchise_cp_days"], "salary": r["franchise_salary_days"],
+            "max_days": max(0, total_days - franchises)},
+        "current": {"period_start": (fct - timedelta(days=364)).isoformat(),
+                    "period_end": fct.isoformat(), "totals": cur_tot, "aj": cur_aj},
+        "projection": {
+            "window_start": win_start.isoformat(), "window_end": da.isoformat(),
+            "hours_total": total["hours"], "hours_done": done["hours"],
+            "hours_planned": round(total["hours"] - done["hours"], 2),
+            "hours_needed": round(needed, 1), "per_week": per_week,
+            "missing_gross": total["missing_gross"],
+            "aj": aj_estimate(r, total) if total["hours"] >= HOURS_TARGET else None},
+        "settings": {
+            "annexe": r["annexe"], "fct_date": r["fct_date"], "start_date": r["start_date"],
+            "anniversary_date": r["anniversary_date"],
+            "aj_brute": None if r["aj_brute_cents"] is None else r["aj_brute_cents"] / 100,
+            "waiting_days": r["waiting_days"], "franchise_cp_days": r["franchise_cp_days"],
+            "franchise_salary_days": r["franchise_salary_days"],
+            "csg_rate": r["csg_rate"], "alsace_moselle": bool(r["alsace_moselle"])},
+    }
+
+
+def parse_rights(d):
+    if not isinstance(d, dict):
+        raise ValueError("Données invalides")
+
+    def dt(key, required=False):
+        v = d.get(key)
+        if v in (None, ""):
+            if required:
+                raise ValueError("Date de fin de contrat (FCT) requise")
+            return None
+        try:
+            return date.fromisoformat(str(v))
+        except ValueError:
+            raise ValueError(f"Date invalide : {key}")
+
+    def num(key, lo, hi, default):
+        v = d.get(key)
+        if v in (None, ""):
+            return default
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"Valeur invalide : {key}")
+        if not lo <= n <= hi:
+            raise ValueError(f"{key} doit être entre {lo} et {hi}")
+        return n
+
+    try:
+        annexe = int(d.get("annexe"))
+    except (TypeError, ValueError):
+        raise ValueError("Annexe invalide")
+    if annexe not in (8, 10):
+        raise ValueError("Annexe invalide")
+    fct = dt("fct_date", True)
+    start = dt("start_date") or fct + timedelta(days=1)
+    da = dt("anniversary_date")
+    if start <= fct:
+        raise ValueError("Le début d'indemnisation doit suivre la fin de contrat")
+    if da and da <= start:
+        raise ValueError("La date anniversaire doit suivre le début d'indemnisation")
+    aj = to_cents(d.get("aj_brute"))
+    if aj is not None and not (0 < aj <= 50000):
+        raise ValueError("AJ brute hors limites (0 à 500 €)")
+    try:
+        csg = float(d.get("csg_rate", 6.2))
+    except (TypeError, ValueError):
+        raise ValueError("Taux de CSG invalide")
+    if csg not in (0.0, 3.8, 6.2):
+        raise ValueError("Taux de CSG invalide")
+    alsace = 1 if d.get("alsace_moselle") in (True, 1, "1", "true", "on") else 0
+    return (annexe, fct.isoformat(), start.isoformat(), da.isoformat() if da else None, aj,
+            num("waiting_days", 0, 7, 7), num("franchise_cp_days", 0, 60, 0),
+            num("franchise_salary_days", 0, 365, 0), csg, alsace)
+
+
+@app.get("/intermittence")
+@login_required
+def intermittence_page():
+    return render_template("intermittence.html")
+
+
+@app.get("/api/intermittence")
+@login_required
+def get_intermittence():
+    return jsonify(overview=build_overview(get_db(), session["uid"]))
+
+
+@app.put("/api/intermittence")
+@login_required
+def save_intermittence():
+    try:
+        vals = parse_rights(request.get_json(silent=True))
+    except ValueError as e:
+        return err(str(e))
+    db, uid = get_db(), session["uid"]
+    db.execute(
+        "INSERT INTO are_rights(user_id, annexe, fct_date, start_date, anniversary_date,"
+        " aj_brute_cents, waiting_days, franchise_cp_days, franchise_salary_days,"
+        " csg_rate, alsace_moselle) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+        " ON CONFLICT(user_id) DO UPDATE SET annexe=excluded.annexe,"
+        " fct_date=excluded.fct_date, start_date=excluded.start_date,"
+        " anniversary_date=excluded.anniversary_date, aj_brute_cents=excluded.aj_brute_cents,"
+        " waiting_days=excluded.waiting_days, franchise_cp_days=excluded.franchise_cp_days,"
+        " franchise_salary_days=excluded.franchise_salary_days, csg_rate=excluded.csg_rate,"
+        " alsace_moselle=excluded.alsace_moselle, updated_at=CURRENT_TIMESTAMP",
+        (uid, *vals))
+    db.commit()
+    return jsonify(overview=build_overview(db, uid))
+
+
+@app.delete("/api/intermittence")
+@login_required
+def reset_intermittence():
+    db = get_db()
+    db.execute("DELETE FROM are_rights WHERE user_id=?", (session["uid"],))
+    db.commit()
     return jsonify(ok=True)
 
 if __name__ == "__main__":

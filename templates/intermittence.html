@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Intermittence – 507h{% endblock %}
+{% block body %}
+<header class="topbar">
+    <h1>507<span>h</span></h1>
+    <nav class="row">
+        <a class="ghost btn" href="/">Mes contrats</a>
+        <a class="ghost btn" href="/account">Mon compte</a>
+        <button id="logout" class="ghost">Déconnexion</button>
+    </nav>
+</header>
+<main class="container">
+    <section class="card" id="empty-state" hidden>
+        <h2>Mon droit à l'ARE</h2>
+        <p class="muted">Renseigne ton droit en cours (fin de contrat retenue, annexe, franchises…) pour suivre ta date anniversaire, ton allocation et ta progression vers les 507 h.</p>
+        <button class="primary inline" id="edit-empty" type="button">Renseigner mon droit</button>
+    </section>
+
+    <div id="content" hidden class="container inner">
+        <section class="card">
+            <div class="card-head"><h2>Date anniversaire</h2>
+                <button class="ghost" id="edit-btn" type="button">Modifier</button></div>
+            <p class="big" id="da-date"></p>
+            <p class="badge" id="da-status"></p>
+            <div class="progress"><div id="elapsed-bar"></div></div>
+            <p class="muted small" id="da-detail"></p>
+        </section>
+
+        <section class="card">
+            <h2>Allocation journalière</h2>
+            <p class="big" id="aj-brut"></p>
+            <p id="aj-net"></p>
+            <ul class="kv" id="aj-detail"></ul>
+            <p class="muted small" id="aj-note"></p>
+        </section>
+
+        <section class="card">
+            <h2>Période d'indemnisation</h2>
+            <ul class="kv" id="indem-detail"></ul>
+        </section>
+
+        <section class="card">
+            <h2>Vers le prochain examen (507 h)</h2>
+            <div class="progress"><div id="proj-bar"></div></div>
+            <p><strong id="proj-hours">0</strong> / 507 h <span class="muted" id="proj-msg"></span></p>
+            <ul class="kv" id="proj-detail"></ul>
+            <p class="muted small" id="proj-note"></p>
+        </section>
+    </div>
+
+    <p class="muted small">Estimations indicatives calculées à partir de tes contrats : seule la notification de France Travail fait foi. Les cachets, heures assimilées et plafonds mensuels d'heures ne sont pas encore pris en compte.</p>
+</main>
+
+<dialog id="rights-dialog">
+    <form id="rights-form" novalidate>
+        <div class="card-head"><h2>Mon droit à l'ARE</h2>
+            <button type="button" class="ghost" id="close-dialog" aria-label="Fermer">✕</button></div>
+        <label>Annexe
+            <select name="annexe">
+                <option value="8">Annexe 8 – ouvriers et techniciens</option>
+                <option value="10">Annexe 10 – artistes</option>
+            </select></label>
+        <label>Fin de contrat retenue (FCT)
+            <input type="date" name="fct_date" required></label>
+        <label>Début d'indemnisation (optionnel)
+            <input type="date" name="start_date"></label>
+        <label>Date anniversaire (optionnel, sinon FCT + 12 mois)
+            <input type="date" name="anniversary_date"></label>
+        <label>AJ brute de la notification, € (optionnel)
+            <input type="number" name="aj_brute" step="0.01" min="0"></label>
+        <label>Délai d'attente (jours)
+            <input type="number" name="waiting_days" min="0" max="7" value="7"></label>
+        <label>Franchise congés payés (jours)
+            <input type="number" name="franchise_cp_days" min="0" max="60" value="0"></label>
+        <label>Franchise salaires (jours)
+            <input type="number" name="franchise_salary_days" min="0" max="365" value="0"></label>
+        <label>CSG
+            <select name="csg_rate">
+                <option value="6.2">Taux plein (6,2 %)</option>
+                <option value="3.8">Taux réduit (3,8 %)</option>
+                <option value="0">Exonéré</option>
+            </select></label>
+        <label class="check"><input type="checkbox" name="alsace_moselle"> Régime local Alsace-Moselle (+1,5 %)</label>
+        <p class="muted small full">Les franchises figurent sur ta notification d'admission. Laisse l'AJ vide pour l'estimer depuis tes contrats.</p>
+        <p class="error full" id="form-error" role="alert"></p>
+        <div class="row full">
+            <button class="primary inline" type="submit" id="save-btn">Enregistrer</button>
+            <button class="ghost" type="button" id="cancel">Annuler</button>
+            <button class="ghost danger" type="button" id="reset-btn">Effacer mon droit</button>
+        </div>
+    </form>
+</dialog>
+<footer class="footer muted small">507h v{{ app_version }}</footer>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/intermittence.js') }}"></script>
+{% endblock %}
