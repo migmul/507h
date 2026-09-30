@@ -21,7 +21,7 @@ button { font:inherit; cursor:pointer; border-radius:8px; padding:.55rem 1rem; b
 .tabs { display:flex; gap:.5rem; margin:1rem 0; }
 .tabs button { flex:1; background:transparent; color:var(--muted); }
 .tabs .active { color:var(--text); border-color:var(--accent); }
-#contract-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:0 1rem; }
+#contract-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:0 1rem; padding:1.25rem; }
 #contract-form .error, #contract-form .row { grid-column:1/-1; }
 .row { display:flex; gap:.5rem; } .row .primary { width:auto; }
 .progress { height:14px; background:var(--bg); border-radius:99px; overflow:hidden; border:1px solid var(--border); }
@@ -37,7 +37,7 @@ th,td { padding:.6rem; border-bottom:1px solid var(--border); text-align:left; w
 .footer { text-align:center; padding:1.5rem; }
 
 dialog { background:var(--card); color:var(--text); border:1px solid var(--border);
-         border-radius:12px; padding:1.25rem; width:min(680px, 94vw); max-height:92vh; overflow-y:auto; }
+         border-radius:12px; padding:0; width:min(680px, 94vw); max-height:92vh; overflow-y:auto; }
 dialog::backdrop { background:rgba(0,0,0,.65); }
 dialog .full, #contract-form .full { grid-column:1/-1; }
 textarea { width:100%; padding:.6rem; margin-top:.25rem; background:var(--bg); color:var(--text);
@@ -52,3 +52,9 @@ input[type=file] { padding:.4rem; }
 .docs { list-style:none; padding:0; margin:.5rem 0 0; }
 .docs li { display:flex; justify-content:space-between; align-items:center; gap:.5rem; padding:.25rem 0; }
 .docs a { color:var(--accent); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+th .sort { all:unset; cursor:pointer; display:inline-flex; gap:.35rem; align-items:center;
+           color:var(--muted); font-weight:600; }
+th .sort:hover, th[aria-sort="ascending"] .sort, th[aria-sort="descending"] .sort { color:var(--text); }
+th.num { text-align:right; }
+th.num .sort { justify-content:flex-end; }
+.arrow { font-size:.7rem; width:.8rem; }

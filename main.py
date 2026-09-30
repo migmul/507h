@@ -15,7 +15,7 @@ from flask import (Flask, abort, g, jsonify, redirect, render_template,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.1"
+APP_VERSION = "0.2"
 
 BASE = Path(__file__).parent
 INSTANCE = BASE / "instance"
@@ -64,12 +64,12 @@ CREATE TABLE IF NOT EXISTS contracts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   employer TEXT NOT NULL,
-  mission TEXT NOT NULL,
+  mission TEXT NOT NULL DEFAULT '',
   hours REAL NOT NULL CHECK (hours > 0),
   start_date TEXT NOT NULL,
   end_date TEXT NOT NULL,
-  gross_cents INTEGER NOT NULL CHECK (gross_cents >= 0),
-  net_cents INTEGER NOT NULL CHECK (net_cents >= 0),
+  gross_cents INTEGER CHECK (gross_cents IS NULL OR gross_cents >= 0),
+  net_cents INTEGER CHECK (net_cents IS NULL OR net_cents >= 0),
   comment TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -92,9 +92,33 @@ CREATE INDEX IF NOT EXISTS idx_documents_contract ON documents(contract_id);
 def migrate():
     with sqlite3.connect(DB_PATH) as c:
         c.executescript(SCHEMA)
-        cols = {r[1] for r in c.execute("PRAGMA table_info(contracts)")}
-        if "comment" not in cols:  # base créée avant l'ajout du commentaire
+        info = {r[1]: r for r in c.execute("PRAGMA table_info(contracts)")}
+        if "comment" not in info:
             c.execute("ALTER TABLE contracts ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
+        if info["gross_cents"][3] == 1:  # colonne encore NOT NULL -> reconstruction (v0.2)
+            c.executescript("""
+            BEGIN;
+            CREATE TABLE contracts_new (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              employer TEXT NOT NULL,
+              mission TEXT NOT NULL DEFAULT '',
+              hours REAL NOT NULL CHECK (hours > 0),
+              start_date TEXT NOT NULL,
+              end_date TEXT NOT NULL,
+              gross_cents INTEGER CHECK (gross_cents IS NULL OR gross_cents >= 0),
+              net_cents INTEGER CHECK (net_cents IS NULL OR net_cents >= 0),
+              comment TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO contracts_new
+              SELECT id, user_id, employer, mission, hours, start_date, end_date,
+                     gross_cents, net_cents, comment, created_at FROM contracts;
+            DROP TABLE contracts;
+            ALTER TABLE contracts_new RENAME TO contracts;
+            CREATE INDEX IF NOT EXISTS idx_contracts_user_end ON contracts(user_id, end_date);
+            COMMIT;
+            """)
 
 
 migrate()
@@ -187,6 +211,8 @@ def err(msg, code=400):
 
 
 def to_cents(v):
+    if v is None or str(v).strip() == "":
+        return None
     try:
         d = Decimal(str(v).replace(",", "."))
     except (InvalidOperation, ValueError):
@@ -200,12 +226,12 @@ def parse_contract(data):
     if not isinstance(data, dict):
         raise ValueError("Données invalides")
     employer = " ".join(str(data.get("employer", "")).split())
-    mission = str(data.get("mission", "")).strip()
+    mission = str(data.get("mission", "") or "").strip()
     comment = str(data.get("comment", "") or "").strip()
     if not employer or len(employer) > 120:
         raise ValueError("Employeur requis (120 caractères max)")
-    if not mission or len(mission) > 160:
-        raise ValueError("Mission requise (160 caractères max)")
+    if len(mission) > 160:
+        raise ValueError("Mission : 160 caractères max")
     if len(comment) > 500:
         raise ValueError("Commentaire : 500 caractères max")
     try:
@@ -222,7 +248,7 @@ def parse_contract(data):
     if end < start:
         raise ValueError("La date de fin précède la date de début")
     gross, net = to_cents(data.get("gross")), to_cents(data.get("net"))
-    if net > gross:
+    if gross is not None and net is not None and net > gross:
         raise ValueError("Le net ne peut pas dépasser le brut")
     return (employer, mission, hours, start.isoformat(), end.isoformat(),
             gross, net, comment)
@@ -235,7 +261,8 @@ def doc_to_dict(r):
 def row_to_dict(r, docs):
     return dict(id=r["id"], employer=r["employer"], mission=r["mission"],
                 hours=r["hours"], start_date=r["start_date"], end_date=r["end_date"],
-                gross=r["gross_cents"] / 100, net=r["net_cents"] / 100,
+                gross=None if r["gross_cents"] is None else r["gross_cents"] / 100,
+                net=None if r["net_cents"] is None else r["net_cents"] / 100,
                 comment=r["comment"], documents=docs)
 
 

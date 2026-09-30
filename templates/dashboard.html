@@ -21,11 +21,7 @@
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr>
-          <th>Employeur</th><th>Mission</th><th>Dates</th>
-          <th class="num">Heures</th><th class="num">Brut</th><th class="num">Net</th>
-          <th>Docs</th><th></th>
-        </tr></thead>
+        <thead><tr id="head-row"></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
@@ -49,12 +45,12 @@
       <div id="employer-chips" class="chips" aria-label="Employeurs récents"></div>
     </div>
 
-    <label>Mission <input name="mission" maxlength="160" required></label>
+    <label>Mission (optionnel) <input name="mission" maxlength="160"></label>
     <label>Heures <input name="hours" type="number" step="0.5" min="0.5" required></label>
     <label>Début <input name="start_date" type="date" required></label>
     <label>Fin <input name="end_date" type="date" required></label>
-    <label>Brut (€) <input name="gross" type="number" step="0.01" min="0" required></label>
-    <label>Net (€) <input name="net" type="number" step="0.01" min="0" required></label>
+    <label>Brut (€, optionnel) <input name="gross" type="number" step="0.01" min="0"></label>
+    <label>Net (€, optionnel) <input name="net" type="number" step="0.01" min="0"></label>
 
     <label class="full">Commentaire (optionnel)
       <textarea name="comment" rows="3" maxlength="500"></textarea>
