@@ -3,6 +3,18 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.6] - 2026-09-30
+
+### Ajouté
+- Import de données depuis un fichier JSON, au même endroit que l'export (page « Mon compte », carte « Mes données »). Le fichier attendu est le `donnees.json` d'une archive d'export 507h.
+- Import des contrats : les doublons (même employeur, mission, dates et heures) sont ignorés ; les documents PDF ne sont pas importés.
+- Import du droit ARE uniquement si aucun droit n'est déjà renseigné.
+- Import atomique : si une entrée est invalide, rien n'est modifié et les premières erreurs sont listées.
+- Limites : fichier de 2 Mo maximum, 2 000 contrats par import.
+
+### Modifié
+- Page « Mon compte » : la carte « Sessions et données » est scindée en « Sessions » et « Mes données ».
+
 ## [0.5.1] - 2026-09-30
 
 ### Supprimé
@@ -92,6 +104,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## Connu / à faire
 - Le calcul des 507 h n'applique pas les plafonds mensuels d'heures (208 h / 250 h pour l'annexe 8) et ne gère ni les cachets (annexe 10) ni les heures assimilées.
+- L'import JSON ne restaure pas les documents PDF (ils restent dans l'archive ZIP d'export).
 - Simulation mensuelle de l'ARE (jours non indemnisables, cumul avec salaires plafonné à 118 % du PMSS) et historique des droits : prévus pour une prochaine version.
 - Pas de récupération de mot de passe (nécessite l'envoi d'e-mails) ni de vérification de l'adresse e-mail.
 - Limitation de tentatives en mémoire (1 seul worker gunicorn).

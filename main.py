@@ -15,7 +15,7 @@ from flask import (Flask, abort, g, jsonify, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.5.1"
+APP_VERSION = "0.6"
 
 BASE = Path(__file__).parent
 INSTANCE = BASE / "instance"
@@ -24,6 +24,8 @@ DB_PATH = INSTANCE / "507h.db"
 UPLOAD_DIR = INSTANCE / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True, mode=0o700)
 
+MAX_IMPORT_BYTES = 2 * 1024 * 1024
+MAX_IMPORT_CONTRACTS = 2000
 MAX_PDF = 10 * 1024 * 1024
 MAX_DOCS_PER_CONTRACT = 12
 KINDS = {"contrat", "aem", "bulletin"}
@@ -618,6 +620,68 @@ def logout_all():
     bump_sessions(get_db(), session["uid"])
     return jsonify(ok=True)
 
+@app.post("/api/account/import")
+@login_required
+def import_data():
+    if (request.content_length or 0) > MAX_IMPORT_BYTES:
+        return err("Fichier trop volumineux (2 Mo max)", 413)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return err("Fichier JSON invalide")
+    items = data.get("contracts", [])
+    if not isinstance(items, list):
+        return err("Format inattendu : « contracts » doit être une liste")
+    if len(items) > MAX_IMPORT_CONTRACTS:
+        return err(f"{MAX_IMPORT_CONTRACTS} contrats maximum par import")
+
+    parsed, errors = [], []
+    for i, it in enumerate(items, 1):
+        try:
+            parsed.append(parse_contract(it))
+        except ValueError as e:
+            errors.append(f"Contrat n°{i} : {e}")
+    rights = None
+    if data.get("droit_are"):
+        try:
+            rights = parse_rights(data["droit_are"])
+        except ValueError as e:
+            errors.append(f"Droit ARE : {e}")
+    if errors:
+        return jsonify(error="Import refusé, rien n'a été modifié", details=errors[:10]), 400
+    if not parsed and rights is None:
+        return err("Aucune donnée à importer dans ce fichier")
+
+    db, uid = get_db(), session["uid"]
+    seen = {(r["employer"].lower(), r["mission"], r["start_date"], r["end_date"], r["hours"])
+            for r in db.execute(
+                "SELECT employer, mission, start_date, end_date, hours"
+                " FROM contracts WHERE user_id=?", (uid,))}
+    new, dup = [], 0
+    for v in parsed:   # v = (employer, mission, hours, start, end, gross, net, comment)
+        key = (v[0].lower(), v[1], v[3], v[4], v[2])
+        if key in seen:
+            dup += 1
+            continue
+        seen.add(key)
+        new.append(v)
+
+    rights_status = "none"
+    try:
+        db.executemany(
+            "INSERT INTO contracts(user_id, employer, mission, hours, start_date,"
+            " end_date, gross_cents, net_cents, comment) VALUES (?,?,?,?,?,?,?,?,?)",
+            [(uid, *v) for v in new])
+        if rights is not None:
+            if db.execute("SELECT 1 FROM are_rights WHERE user_id=?", (uid,)).fetchone():
+                rights_status = "ignored"
+            else:
+                db.execute(UPSERT_RIGHTS, (uid, *rights))
+                rights_status = "imported"
+        db.commit()
+    except sqlite3.Error:
+        db.rollback()
+        return err("Erreur lors de l'import, rien n'a été modifié", 500)
+    return jsonify(added=len(new), duplicates=dup, rights=rights_status)
 
 @app.get("/api/account/export")
 @login_required
@@ -788,6 +852,13 @@ def intermittence_page():
 def get_intermittence():
     return jsonify(overview=build_overview(get_db(), session["uid"]))
 
+UPSERT_RIGHTS = (
+    "INSERT INTO are_rights(user_id, annexe, fct_date, start_date, anniversary_date,"
+    " aj_net_cents) VALUES (?,?,?,?,?,?)"
+    " ON CONFLICT(user_id) DO UPDATE SET annexe=excluded.annexe,"
+    " fct_date=excluded.fct_date, start_date=excluded.start_date,"
+    " anniversary_date=excluded.anniversary_date, aj_net_cents=excluded.aj_net_cents,"
+    " updated_at=CURRENT_TIMESTAMP")
 
 @app.put("/api/intermittence")
 @login_required
@@ -797,14 +868,7 @@ def save_intermittence():
     except ValueError as e:
         return err(str(e))
     db, uid = get_db(), session["uid"]
-    db.execute(
-        "INSERT INTO are_rights(user_id, annexe, fct_date, start_date, anniversary_date,"
-        " aj_net_cents) VALUES (?,?,?,?,?,?)"
-        " ON CONFLICT(user_id) DO UPDATE SET annexe=excluded.annexe,"
-        " fct_date=excluded.fct_date, start_date=excluded.start_date,"
-        " anniversary_date=excluded.anniversary_date, aj_net_cents=excluded.aj_net_cents,"
-        " updated_at=CURRENT_TIMESTAMP",
-        (uid, *vals))
+    db.execute(UPSERT_RIGHTS, (uid, *vals))
     db.commit()
     return jsonify(overview=build_overview(db, uid))
 
