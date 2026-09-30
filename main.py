@@ -4,6 +4,7 @@ import os
 import secrets
 import sqlite3
 import time
+import json, shutil, zipfile
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
@@ -15,7 +16,7 @@ from flask import (Flask, abort, g, jsonify, redirect, render_template,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.2"
+APP_VERSION = "0.3"
 
 BASE = Path(__file__).parent
 INSTANCE = BASE / "instance"
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  session_version INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS contracts (
@@ -95,6 +97,9 @@ def migrate():
         info = {r[1]: r for r in c.execute("PRAGMA table_info(contracts)")}
         if "comment" not in info:
             c.execute("ALTER TABLE contracts ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
+        ucols = {r[1] for r in c.execute("PRAGMA table_info(users)")}
+        if "session_version" not in ucols:
+            c.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0")
         if info["gross_cents"][3] == 1:  # colonne encore NOT NULL -> reconstruction (v0.2)
             c.executescript("""
             BEGIN;
@@ -154,7 +159,7 @@ app.jinja_env.globals["csrf_token"] = csrf_token
 def check_csrf():
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
         sent = request.headers.get("X-CSRF-Token", "")
-        if not sent or not secrets.compare_digest(sent, session.get("csrf", "")):
+        if not sent or not secrets.compare_digest(sent.encode(), session.get("csrf", "").encode()):
             abort(403)
 
 
@@ -194,15 +199,44 @@ def too_many(key):
 DUMMY_HASH = generate_password_hash("dummy-password-for-timing")
 
 
+def current_uid():
+    uid = session.get("uid")
+    if not uid:
+        return None
+    u = get_db().execute("SELECT session_version FROM users WHERE id=?", (uid,)).fetchone()
+    if not u or u["session_version"] != session.get("sv"):
+        session.clear()
+        return None
+    return uid
+
+
 def login_required(f):
     @wraps(f)
     def wrapper(*a, **kw):
-        if "uid" not in session:
+        if current_uid() is None:
             if request.path.startswith("/api/"):
                 return jsonify(error="Non authentifié"), 401
             return redirect(url_for("login_page"))
         return f(*a, **kw)
     return wrapper
+
+
+def valid_email(e):
+    return (len(e) <= 254 and " " not in e and "@" in e
+            and "." in e.split("@")[-1] and not e.startswith("@"))
+
+
+def check_password(uid, pwd):
+    """None si le mot de passe est bon, sinon une réponse d'erreur."""
+    key = f"acct|{uid}"
+    if too_many(key):
+        return err("Trop de tentatives, réessaie dans 15 minutes", 429)
+    u = get_db().execute("SELECT password_hash FROM users WHERE id=?", (uid,)).fetchone()
+    if not (u and check_password_hash(u["password_hash"], pwd)):
+        FAILS.setdefault(key, []).append(time.time())
+        return err("Mot de passe actuel incorrect", 403)
+    FAILS.pop(key, None)
+    return None
 
 
 # ---------- Validation ----------
@@ -289,9 +323,14 @@ def dashboard():
 
 @app.get("/login")
 def login_page():
-    if "uid" in session:
+    if current_uid():
         return redirect(url_for("dashboard"))
     return render_template("auth.html")
+
+@app.get("/account")
+@login_required
+def account_page():
+    return render_template("account.html")
 
 
 # ---------- API auth ----------
@@ -300,10 +339,12 @@ def register():
     data = request.get_json(silent=True) or {}
     email = str(data.get("email", "")).strip().lower()
     pwd = str(data.get("password", ""))
-    if "@" not in email or len(email) > 254 or "." not in email.split("@")[-1]:
+    if not valid_email(email):
         return err("Email invalide")
     if not (12 <= len(pwd) <= 200):
         return err("Mot de passe : 12 caractères minimum")
+    if pwd != str(data.get("password_confirm", "")):
+        return err("Les mots de passe ne correspondent pas")
     db = get_db()
     try:
         cur = db.execute("INSERT INTO users(email, password_hash) VALUES (?, ?)",
@@ -314,6 +355,7 @@ def register():
     session.clear()
     session.permanent = True
     session["uid"] = cur.lastrowid
+    session["sv"] = 0
     csrf_token()
     return jsonify(ok=True), 201
 
@@ -335,6 +377,7 @@ def login():
     session.clear()
     session.permanent = True
     session["uid"] = u["id"]
+    session["sv"] = u["session_version"]
     csrf_token()
     return jsonify(ok=True)
 
@@ -490,6 +533,115 @@ def summary():
     return jsonify(hours=row["h"], contracts=row["n"], target=507,
                    window_start=start.isoformat(), window_end=today.isoformat())
 
+# ---------- API compte ----------
+def bump_sessions(db, uid):
+    db.execute("UPDATE users SET session_version = session_version + 1 WHERE id=?", (uid,))
+    db.commit()
+    session["sv"] = db.execute("SELECT session_version FROM users WHERE id=?", (uid,)).fetchone()[0]
+
+
+@app.get("/api/account")
+@login_required
+def account_info():
+    db, uid = get_db(), session["uid"]
+    u = db.execute("SELECT email, created_at FROM users WHERE id=?", (uid,)).fetchone()
+    nc = db.execute("SELECT COUNT(*) FROM contracts WHERE user_id=?", (uid,)).fetchone()[0]
+    nd = db.execute("SELECT COUNT(*) FROM documents WHERE user_id=?", (uid,)).fetchone()[0]
+    return jsonify(email=u["email"], created_at=u["created_at"], contracts=nc, documents=nd)
+
+
+@app.post("/api/account/email")
+@login_required
+def change_email():
+    d = request.get_json(silent=True) or {}
+    uid = session["uid"]
+    email = str(d.get("email", "")).strip().lower()
+    if not valid_email(email):
+        return err("Email invalide")
+    bad = check_password(uid, str(d.get("password", "")))
+    if bad:
+        return bad
+    db = get_db()
+    try:
+        db.execute("UPDATE users SET email=? WHERE id=?", (email, uid))
+        db.commit()
+    except sqlite3.IntegrityError:
+        return err("Cette adresse n'est pas disponible", 409)
+    return jsonify(ok=True, email=email)
+
+
+@app.post("/api/account/password")
+@login_required
+def change_password():
+    d = request.get_json(silent=True) or {}
+    uid = session["uid"]
+    current, new = str(d.get("current", "")), str(d.get("new", ""))
+    if not (12 <= len(new) <= 200):
+        return err("Nouveau mot de passe : 12 caractères minimum")
+    if new != str(d.get("confirm", "")):
+        return err("Les mots de passe ne correspondent pas")
+    if new == current:
+        return err("Le nouveau mot de passe doit être différent de l'ancien")
+    bad = check_password(uid, current)
+    if bad:
+        return bad
+    db = get_db()
+    db.execute("UPDATE users SET password_hash=? WHERE id=?",
+               (generate_password_hash(new), uid))
+    bump_sessions(db, uid)   # déconnecte les autres appareils, garde celui-ci
+    return jsonify(ok=True)
+
+
+@app.post("/api/account/logout-all")
+@login_required
+def logout_all():
+    bump_sessions(get_db(), session["uid"])
+    return jsonify(ok=True)
+
+
+@app.get("/api/account/export")
+@login_required
+def export_account():
+    db, uid = get_db(), session["uid"]
+    u = db.execute("SELECT email, created_at FROM users WHERE id=?", (uid,)).fetchone()
+    docs = db.execute("SELECT * FROM documents WHERE user_id=? ORDER BY id", (uid,)).fetchall()
+    by_contract = {}
+    for d in docs:
+        by_contract.setdefault(d["contract_id"], []).append(doc_to_dict(d))
+    contracts = [row_to_dict(r, by_contract.get(r["id"], [])) for r in db.execute(
+        "SELECT * FROM contracts WHERE user_id=? ORDER BY end_date DESC", (uid,))]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("donnees.json", json.dumps(
+            {"version": APP_VERSION, "email": u["email"], "created_at": u["created_at"],
+             "contracts": contracts}, ensure_ascii=False, indent=2))
+        for d in docs:
+            try:
+                raw = FERNET.decrypt((UPLOAD_DIR / str(uid) / d["stored_name"]).read_bytes())
+            except (FileNotFoundError, InvalidToken):
+                continue
+            z.writestr(f"documents/{d['id']}_{d['kind']}_{d['original_name']}", raw)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name="507h-export.zip")
+
+
+@app.delete("/api/account")
+@login_required
+def delete_account():
+    d = request.get_json(silent=True) or {}
+    uid = session["uid"]
+    if d.get("confirm") != "SUPPRIMER":
+        return err("Tape SUPPRIMER pour confirmer")
+    bad = check_password(uid, str(d.get("password", "")))
+    if bad:
+        return bad
+    db = get_db()
+    db.execute("DELETE FROM users WHERE id=?", (uid,))   # cascade : contrats + documents
+    db.commit()
+    shutil.rmtree(UPLOAD_DIR / str(uid), ignore_errors=True)
+    session.clear()
+    return jsonify(ok=True)
 
 if __name__ == "__main__":
     app.run(debug=os.environ.get("DEV") == "1", port=5007)

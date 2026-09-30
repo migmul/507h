@@ -3,6 +3,26 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.3] - 2026-09-30
+
+### Ajouté
+- Page « Mon compte » (`/account`), accessible depuis le tableau de bord.
+- Changement d'adresse e-mail (mot de passe actuel requis).
+- Changement de mot de passe (mot de passe actuel + nouveau mot de passe saisi deux fois). Les autres sessions sont déconnectées.
+- « Se déconnecter partout » : invalidation de toutes les sessions ouvertes (`session_version`).
+- Export de toutes les données (JSON + documents PDF déchiffrés) dans une archive ZIP.
+- Suppression définitive du compte (mot de passe + saisie de « SUPPRIMER » requis) : contrats, documents en base et fichiers chiffrés sur le disque sont effacés.
+- Champ « Confirmer le mot de passe » à l'inscription (contrôle côté navigateur et côté serveur).
+- Limitation des tentatives sur les actions sensibles du compte.
+
+### Modifié
+- Les sessions sont désormais liées à une version stockée en base : toutes les sessions ouvertes avant la 0.3 sont fermées une fois (reconnexion nécessaire).
+- Migration automatique de la table `users` (colonne `session_version`).
+- Les règles CSS respectent désormais l'attribut `hidden` sur tous les éléments.
+
+### Corrigé
+- La comparaison du jeton CSRF ne plante plus si l'en-tête contient des caractères non ASCII.
+
 ## [0.2] - 2026-09-30
 
 ### Ajouté
@@ -30,8 +50,8 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 ### Modifié
 - Le formulaire de contrat n'est plus sur la page principale : il s'ouvre dans une fenêtre modale (`<dialog>`).
 
-### Connu / à faire
+## Connu / à faire
 - Le calcul des 507 h ne proratise pas les contrats à cheval sur la fenêtre et ne part pas encore de la fin du dernier contrat.
 - Pas de gestion des cachets (annexe 10) ni des heures assimilées.
-- Pas de récupération de mot de passe ni de suppression de compte / export RGPD.
+- Pas de récupération de mot de passe (nécessite l'envoi d'e-mails) ni de vérification de l'adresse e-mail.
 - Limitation de tentatives en mémoire (1 seul worker gunicorn).
