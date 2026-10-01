@@ -3,6 +3,19 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.11] - 2026-10-01
+
+### Ajouté
+- Recherche dans la liste des contrats (employeur, mission, commentaire), insensible à la casse et aux accents, tous les mots saisis devant être présents.
+- Filtres par année (année de fin du contrat), par employeur et par statut : tous, doublons possibles, sans brut ou net, sans document. Bouton « Réinitialiser » et compteur de résultats avec total d'heures et de net.
+- Regroupement par année (année de fin du contrat) avec sous-total par année (nombre de contrats, heures, net), activable et repliable.
+- Alerte de doublon à la saisie : dès qu'un contrat du même employeur existe sur les mêmes dates, un avertissement s'affiche dans la modale et le bouton devient « Enregistrer quand même ». L'alerte distingue un contrat identique (même mission et mêmes heures) d'un contrat voisin.
+- Étiquette « Doublon » sur les contrats concernés dans la liste.
+
+### Modifié
+- Le tableau de bord attend désormais le calcul de la progression avant de s'afficher, pour éviter un second changement visuel après le chargement.
+- Les libellés des documents affichent « n PDF » au lieu d'un symbole.
+
 ## [0.10.2] - 2026-10-01
 
 ### Corrigé

@@ -626,6 +626,34 @@ th.num .sort {
     white-space: nowrap;
 }
 
+/* Lignes de regroupement par année */
+tbody tr.group-row td {
+    background: var(--surface-2);
+    cursor: pointer;
+}
+
+tbody tr.group-row:hover td {
+    background: var(--surface-3);
+}
+
+.group-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.group-toggle {
+    all: unset;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.group-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
 
 /* ==========================================================================
    9. Composants
@@ -704,6 +732,54 @@ th.num .sort {
     pointer-events: none;
 }
 
+/* Barre de recherche et de filtres */
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+    margin: .5rem 0 .75rem;
+}
+
+.toolbar input,
+.toolbar select {
+    width: auto;
+    margin: 0;
+}
+
+.toolbar .grow {
+    flex: 1;
+    min-width: 220px;
+}
+
+.toolbar label {
+    margin: 0;
+    white-space: nowrap;
+}
+
+/* Alertes et étiquettes */
+.alert {
+    margin: 0 0 1rem;
+    padding: .7rem .9rem;
+    font-size: .875rem;
+    border-radius: 8px;
+}
+
+.alert.warn {
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+.tag {
+    display: inline-block;
+    margin-left: .4rem;
+    padding: .05rem .45rem;
+    font-size: .7rem;
+    font-weight: 600;
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    border-radius: 99px;
+}
 
 /* ==========================================================================
    10. Modales
