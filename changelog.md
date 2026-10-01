@@ -3,6 +3,19 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.13] - 2026-10-01
+
+### Modifié
+- Page Intermittence allégée. Le droit en cours et la progression vers les 507 h sont réunis dans une seule carte qui affiche l'essentiel : date anniversaire, jours restants, heures réalisées sur 507 et heures manquantes avec le rythme nécessaire. Le reste (type d'ouverture, annexe, FCT, début d'indemnisation, date d'examen, AJ nette, détail des heures) est dans un bloc « Détails » replié.
+- Historique des droits condensé en quatre colonnes (période avec FCT en sous-ligne, ouverture, AJ nette, heures de référence). Les trois droits les plus récents sont affichés, avec « Afficher tout » pour le reste.
+- Virements condensés en trois colonnes (mois avec jours et note en sous-ligne, date, montant). Les six plus récents sont affichés, avec « Afficher tout » pour le reste. Les totaux tiennent sur une ligne.
+- Un seul bouton « Modifier » par ligne ; la suppression se fait depuis la fenêtre de modification.
+- Contenu de la page centré sur une largeur réduite (880 px).
+
+### Supprimé
+- Barre de progression du temps écoulé dans le droit, note explicative sous l'historique et ligne d'avertissement en bas de page.
+
+
 ## [0.12.1] - 2026-10-01
 
 ### Ajouté

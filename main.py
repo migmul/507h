@@ -32,7 +32,7 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.12.1"
+APP_VERSION = "0.13"
 
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
