@@ -682,6 +682,14 @@ tbody tr.group-row td {
     border-radius: 4px;
 }
 
+.tappable {
+    cursor: pointer;
+}
+
+.mobile-inline {
+    display: none;
+}
+
 /* ==========================================================================
    9. Composants
    ========================================================================== */
@@ -919,6 +927,7 @@ details.more summary:hover {
     font-size: .8rem;
     color: var(--muted);
     white-space: normal;
+    font-weight: 400;
 }
 
 .push {
@@ -1446,7 +1455,15 @@ body {
         width: 100%;
     }
 
-    /* ----- Tableaux : une carte par ligne ----- */
+    .hide-mobile {
+        display: none;
+    }
+
+    .mobile-inline {
+        display: inline;
+    }
+
+    /* ----- Tableaux : une carte par ligne, cliquable ----- */
     .t-contracts,
     .t-contracts tbody,
     .t-rights,
@@ -1469,7 +1486,7 @@ body {
         flex-wrap: wrap;
         align-items: baseline;
         gap: .15rem .6rem;
-        padding: .85rem 0;
+        padding: .7rem 0;
         border-bottom: 1px solid var(--line);
     }
 
@@ -1489,6 +1506,10 @@ body {
         border-bottom: 0;
     }
 
+    .tappable:active {
+        background: var(--hover-strong);
+    }
+
     .t-rights tr.current-row {
         padding-inline: .6rem;
         background: color-mix(in srgb, var(--accent) 8%, transparent);
@@ -1505,7 +1526,7 @@ body {
         border-radius: 8px;
     }
 
-    /* Contrats : employeur et heures / mission / dates, documents et net / actions */
+    /* Contrats : employeur et heures / mission / dates, documents et net */
     .contract-row td:nth-child(1) {
         order: 1;
         flex: 1 1 0;
@@ -1553,31 +1574,13 @@ body {
         font-weight: 500;
     }
 
-    .contract-row td:nth-child(7)::before {
-        content: 'Net ';
-        color: var(--muted);
-        font-weight: 400;
-    }
-
-    .contract-row td:nth-child(6) {
-        display: none;
-    }
-
-    .contract-row td:nth-child(9) {
-        order: 7;
-        flex-basis: 100%;
-        margin-top: .25rem;
-    }
-
-    .contract-row td:nth-child(9) button {
-        padding-left: 0;
-    }
-
+    .contract-row td:nth-child(6),
+    .contract-row td:nth-child(9),
     .contract-row td.none {
         display: none;
     }
 
-    /* Droits : période / ouverture, AJ nette et heures / action */
+    /* Droits : période / ouverture et AJ nette */
     .t-rights td:nth-child(1) {
         order: 1;
         flex-basis: 100%;
@@ -1586,30 +1589,27 @@ body {
 
     .t-rights td:nth-child(2) {
         order: 2;
+        font-size: .9rem;
         color: var(--muted);
     }
 
     .t-rights td:nth-child(3) {
         order: 3;
         margin-left: auto;
+        font-weight: 500;
     }
 
-    .t-rights td:nth-child(4) {
-        order: 4;
-        font-size: .85rem;
-        color: var(--muted);
+    .t-rights td:nth-child(4),
+    .t-rights td:nth-child(5),
+    .t-rights .sub {
+        display: none;
     }
 
-    .t-rights td:nth-child(4)::before {
-        content: 'Réf. ';
+    /* Virements : mois et montant / date, jours et note */
+    .t-payments tr {
+        padding: .6rem 0;
     }
 
-    .t-rights td:nth-child(5) {
-        order: 5;
-        flex-basis: 100%;
-    }
-
-    /* Virements : mois et montant / date / action */
     .t-payments td:nth-child(1) {
         order: 1;
         flex: 1 1 0;
@@ -1622,20 +1622,9 @@ body {
         font-weight: 600;
     }
 
-    .t-payments td:nth-child(2) {
-        order: 3;
-        flex-basis: 100%;
-        font-size: .85rem;
-        color: var(--muted);
-    }
-
-    .t-payments td:nth-child(2)::before {
-        content: 'Versé le ';
-    }
-
+    .t-payments td:nth-child(2),
     .t-payments td:nth-child(4) {
-        order: 4;
-        flex-basis: 100%;
+        display: none;
     }
 
     .t-rights td:last-child button,
@@ -1643,7 +1632,7 @@ body {
         padding-left: 0;
     }
 
-    /* ----- Modales : plein écran, boutons toujours visibles ----- */
+    /* ----- Modales : plein écran, deux colonnes, boutons toujours visibles ----- */
     dialog {
         width: 100%;
         max-width: 100%;
@@ -1651,11 +1640,22 @@ body {
         max-height: 100dvh;
         margin: 0;
         border-radius: 0;
+        overscroll-behavior: contain;
     }
 
     dialog form {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0 .75rem;
         padding: 1rem 1rem 0;
+    }
+
+    dialog form > * {
+        min-width: 0;
+    }
+
+    dialog form .full,
+    dialog form .m-full {
+        grid-column: 1 / -1;
     }
 
     dialog form .card-head {
@@ -1663,7 +1663,7 @@ body {
         top: 0;
         z-index: 2;
         margin: -1rem -1rem .75rem;
-        padding: .75rem 1rem;
+        padding: calc(.75rem + env(safe-area-inset-top)) 1rem .75rem;
         background: var(--surface);
         border-bottom: 1px solid var(--line);
     }
@@ -1679,7 +1679,23 @@ body {
     }
 
     dialog form.stack {
+        grid-template-columns: minmax(0, 1fr);
         padding: 0;
+    }
+
+    /* iOS donne aux champs de date une largeur propre qui fait déborder la grille */
+    input[type=date] {
+        display: block;
+        min-width: 0;
+        max-width: 100%;
+        min-height: 46px;
+        text-align: left;
+        -webkit-appearance: none;
+        appearance: none;
+    }
+
+    input[type=date]::-webkit-date-and-time-value {
+        text-align: left;
     }
 
     .cal {

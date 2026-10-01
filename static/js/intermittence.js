@@ -86,6 +86,13 @@ function renderCurrent(o) {
     ]);
 }
 
+function tappable(tr, onEdit) {
+    tr.classList.add('tappable');
+    tr.addEventListener('click', (e) => {
+        if (!e.target.closest('button')) onEdit();
+    });
+}
+
 /* ---------- Historique des droits ---------- */
 function renderRights(list) {
     const tbody = $('#rights-rows');
@@ -94,9 +101,13 @@ function renderRights(list) {
     const shown = showAll.rights ? list : list.slice(0, LIMIT.rights);
     shown.forEach((r, i) => {
         const tr = document.createElement('tr');
-        if (i === 0) tr.className = 'current-row';
+        if (i === 0) tr.classList.add('current-row');
         const period = el('td', `${fdate(r.start_date)} → ${fdate(r.end_date)}`);
-        if (r.ended_early) period.append(el('span', 'remplacé avant terme', 'tag'));
+        if (r.ended_early) {
+            const tag = el('span', 'remplacé', 'tag');
+            tag.title = 'Remplacé avant terme par un réexamen anticipé';
+            period.append(tag);
+        }
         period.append(el('span', `FCT ${fdate(r.fct_date)}`, 'sub'));
         tr.append(
             period,
@@ -104,6 +115,7 @@ function renderRights(list) {
             el('td', money(r.aj_net), 'num'),
             el('td', r.ref_hours ? fh(r.ref_hours) : '–', 'num'),
             editCell(() => openRight(r)));
+        tappable(tr, () => openRight(r));
         tbody.append(tr);
     });
     moreButton($('#rights-more'), 'rights', list.length);
@@ -121,14 +133,19 @@ function renderPayments(list, totals) {
     const shown = showAll.payments ? list : list.slice(0, LIMIT.payments);
     for (const p of shown) {
         const tr = document.createElement('tr');
-        const month = el('td', fmonth(p.month_covered));
         const meta = [p.days_paid != null ? `${p.days_paid} j` : '', p.note].filter(Boolean).join(' · ');
-        if (meta) month.append(el('span', meta, 'sub'));
+        const month = el('td', fmonth(p.month_covered));
+        const sub = el('span', undefined, 'sub');
+        // La date de versement n'apparaît dans cette cellule que sur mobile
+        sub.append(el('span', `Versé le ${fdate(p.paid_on)}${meta ? ' · ' : ''}`, 'mobile-inline'));
+        if (meta) sub.append(el('span', meta));
+        month.append(sub);
         tr.append(
             month,
             el('td', fdate(p.paid_on)),
             el('td', eur.format(p.amount), 'num'),
             editCell(() => openPayment(p)));
+        tappable(tr, () => openPayment(p));
         tbody.append(tr);
     }
     moreButton($('#pay-more'), 'payments', list.length);

@@ -33,7 +33,7 @@
     <section class="card">
         <div class="card-head">
             <h2>Historique des droits</h2>
-            <button class="primary inline" id="add-right" type="button">+ Ajouter un droit</button>
+            <button class="primary inline" id="add-right" type="button">+ Ajouter<span class="hide-mobile"> un droit</span></button>
         </div>
         <div class="table-wrap">
             <table class="t-rights">
@@ -56,7 +56,7 @@
     <section class="card">
         <div class="card-head">
             <h2>Virements France Travail</h2>
-            <button class="primary inline" id="add-payment" type="button">+ Ajouter un virement</button>
+            <button class="primary inline" id="add-payment" type="button">+ Ajouter<span class="hide-mobile"> un virement</span></button>
         </div>
         <p class="muted small" id="totals"></p>
         <div class="table-wrap">
@@ -84,13 +84,13 @@
             <button type="button" class="ghost" data-close aria-label="Fermer">✕</button>
         </div>
         <input type="hidden" name="id">
-        <label>Annexe
+        <label class="m-full">Annexe
             <select name="annexe">
                 <option value="8">Annexe 8 – ouvriers et techniciens</option>
                 <option value="10">Annexe 10 – artistes</option>
             </select>
         </label>
-        <label>Type d'ouverture
+        <label class="m-full">Type d'ouverture
             <select name="opening_type">
                 <option value="first">Première ouverture</option>
                 <option value="renewal" selected>Renouvellement à la date anniversaire</option>
@@ -98,10 +98,11 @@
             </select>
         </label>
         <label>Fin de contrat retenue (FCT) <input type="date" name="fct_date" required></label>
-        <label>Début d'indemnisation (optionnel, sinon lendemain de la FCT) <input type="date" name="start_date"></label>
-        <label>Date anniversaire (optionnel, sinon FCT + 12 mois) <input type="date" name="anniversary_date"></label>
-        <label>AJ nette de la notification, € (optionnel) <input type="number" name="aj_net" step="0.01" min="0"></label>
+        <label>Début d'indemnisation (optionnel) <input type="date" name="start_date"></label>
+        <label>Date anniversaire (optionnel) <input type="date" name="anniversary_date"></label>
+        <label>AJ nette, € (optionnel) <input type="number" name="aj_net" step="0.01" min="0"></label>
         <label class="full">Note (optionnel) <input name="note" maxlength="200"></label>
+        <p class="muted small full">Sans début ni date anniversaire : lendemain de la FCT et FCT + 12 mois.</p>
         <p class="error full" role="alert" data-error></p>
         <div class="row full">
             <button class="primary inline" type="submit">Enregistrer</button>
@@ -120,11 +121,12 @@
         <input type="hidden" name="id">
         <label>Date du virement <input type="date" name="paid_on" required></label>
         <label>Montant viré, € <input type="number" name="amount" step="0.01" min="0.01" required></label>
-        <label>Mois concerné (optionnel, sinon mois précédent)
+        <label>Mois concerné (optionnel)
             <input name="month_covered" placeholder="2026-08" pattern="\d{4}-\d{2}" maxlength="7">
         </label>
         <label>Jours indemnisés (optionnel) <input type="number" name="days_paid" min="0" max="31"></label>
         <label class="full">Note (optionnel) <input name="note" maxlength="200"></label>
+        <p class="muted small full">Sans mois saisi : le mois précédant le virement.</p>
         <p class="error full" role="alert" data-error></p>
         <div class="row full">
             <button class="primary inline" type="submit">Enregistrer</button>

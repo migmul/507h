@@ -220,6 +220,10 @@ function contractRow(c) {
     };
     actions.append(edit, del);
     tr.append(actions);
+    tr.classList.add('tappable');
+    tr.addEventListener('click', (e) => {
+        if (!e.target.closest('button')) openDialog(c);
+    });
     return tr;
 }
 
@@ -360,9 +364,18 @@ function openDialog(c) {
     editingDocs = c ? [...c.documents] : [];
     renderDocs();
     $('#form-title').textContent = c ? 'Modifier le contrat' : 'Ajouter un contrat';
+    $('#contract-delete').hidden = !c;
     checkDup();
     dialog.showModal();
 }
+
+$('#contract-delete').onclick = async () => {
+    const id = form.elements.id.value;
+    if (!id || !confirm('Supprimer ce contrat et ses documents ?')) return;
+    await api(`/api/contracts/${id}`, 'DELETE');
+    dialog.close();
+    load();
+};
 
 const closeDialog = () => dialog.close();
 $('#add-btn').onclick = () => openDialog(null);

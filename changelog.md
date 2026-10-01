@@ -3,6 +3,21 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.15.2] - 2026-10-01
+
+### Modifié
+- Mobile : les lignes de contrats, de droits et de virements deviennent entièrement cliquables et ouvrent la fenêtre de modification ; les boutons « Modifier » et « Supprimer » ne sont plus affichés dans les cartes, ce qui réduit leur hauteur. La suppression d'un contrat se fait depuis la fenêtre de modification (nouveau bouton « Supprimer »).
+- Mobile, contrats : l'étiquette « Net » est retirée, le montant net reste affiché à droite.
+- Mobile, historique des droits : une carte de deux lignes (période, puis ouverture et AJ nette). La FCT et les heures de référence ne sont plus affichées sur mobile.
+- Mobile, virements : une carte de deux lignes (mois et montant, puis « Versé le » avec les jours et la note).
+- Boutons d'ajout raccourcis en « + Ajouter » sur mobile.
+- Mobile, modales : champs en deux colonnes (début et fin, brut et net, FCT et début d'indemnisation, etc.) pour réduire le défilement ; en-tête compatible avec la zone sûre en haut de l'écran.
+- Les libellés longs des modales Droit et Virement sont raccourcis et leurs valeurs par défaut sont expliquées en une ligne sous le formulaire.
+- L'étiquette « remplacé avant terme » devient « remplacé » (le détail est dans l'infobulle).
+
+### Corrigé
+- Mobile, modales : les champs de date débordaient à droite et décalaient tout le formulaire (iOS).
+
 ## [0.15.1] - 2026-10-01
 
 ### Corrigé
