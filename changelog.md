@@ -3,6 +3,16 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.14] - 2026-10-01
+
+### Modifié
+- Page Statistiques allégée. Le paragraphe d'explication en tête est remplacé par la période affichée sur une ligne, à côté du sélecteur. Les notes de méthode (prorata des jours, rattachement de l'ARE, mois incomplets) passent dans un bloc « Méthode de calcul » replié en bas de page.
+- Quatre chiffres clés en tête de page : heures sur la période, heures par semaine (avec la moyenne mensuelle), revenu net moyen par mois (avec la médiane) et meilleur mois de revenu.
+- Les moyennes, médianes et meilleurs mois détaillés (heures, salaires nets, ARE, revenu total) sont dans un bloc replié « Moyennes, médianes et meilleurs mois ».
+- Le calendrier d'activité est replié par défaut et ne se calcule qu'à l'ouverture. Sa légende est raccourcie.
+- Le nombre de contrats sans net est signalé par une étiquette sur le graphique « Revenu net par mois » au lieu d'une phrase.
+- Les graphiques sont inchangés.
+
 ## [0.13] - 2026-10-01
 
 ### Modifié

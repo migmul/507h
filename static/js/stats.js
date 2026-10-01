@@ -278,13 +278,21 @@ function renderCalendar() {
 function render() {
     const st = stats;
     const hs = st.hours_stats;
-    $('#stats-note').textContent =
-        `Période : du ${fdate(st.period.first)} au ${fdate(st.period.last)}. ` +
-        "Heures et salaires répartis au prorata des jours de chaque contrat, jusqu'à aujourd'hui. " +
-        // "L'ARE est rattachée au mois concerné du virement. " +
-        'Les mois incomplets (mois en cours, premier mois partiel) sont exclus des moyennes et médianes.' +
-        (st.no_net ? ` ${st.no_net} contrat(s) sans net sont exclus des revenus.` : '');
+    const total = st.income.total;
+    const hasBest = total && total.best > 0;
 
+    $('#stats-range').textContent = `Du ${fdate(st.period.first)} au ${fdate(st.period.last)}`;
+
+    // Chiffres clés
+    $('#t-hours').textContent = fh(st.hours_total);
+    $('#t-week').textContent = fh(st.hours_per_week);
+    $('#t-week-sub').textContent = hs ? `${fh(hs.mean)} par mois` : '';
+    $('#t-income').textContent = total ? eur0.format(total.mean) : '–';
+    $('#t-income-sub').textContent = total ? `médiane ${eur0.format(total.median)}` : '';
+    $('#t-best').textContent = hasBest ? eur0.format(total.best) : '–';
+    $('#t-best-sub').textContent = hasBest ? fmonth(total.best_month, true) : '';
+
+    // Détails repliés
     kv($('#hours-kpi'), [
         ['Heures sur la période', fh(st.hours_total)],
         ['Moyenne par semaine', fh(st.hours_per_week)],
@@ -292,7 +300,6 @@ function render() {
         ['Médiane par mois', hs ? fh(hs.median) : '–'],
         ['Meilleur mois', hs && hs.best > 0 ? `${fmonth(hs.best_month, true)} · ${fh(hs.best)}` : '–'],
     ]);
-
     const rows = $('#income-rows');
     rows.replaceChildren();
     for (const [key, label] of [['salary', 'Salaires nets'], ['are', 'ARE'], ['total', 'Revenu total']]) {
@@ -306,6 +313,16 @@ function render() {
         rows.append(tr);
     }
 
+    // Méthode et mise en garde
+    $('#method-note').textContent =
+        "Heures et salaires sont répartis au prorata des jours de chaque contrat, jusqu'à aujourd'hui. " +
+        "L'ARE est rattachée au mois concerné du virement. " +
+        'Les moyennes et médianes excluent les mois incomplets (mois en cours, premier mois partiel).';
+    const tag = $('#no-net-tag');
+    tag.hidden = !st.no_net;
+    tag.textContent = `${st.no_net} contrat(s) sans net`;
+
+    // Graphiques
     const months = st.series;
     const note = (m) => (m.complete ? '' : '\n(mois incomplet)');
 
@@ -348,7 +365,7 @@ function render() {
     });
 
     renderDependency();
-    renderCalendar();
+    if ($('#cal-details').open) renderCalendar();    // calculé seulement s'il est déplié
 }
 
 function renderDependency() {
@@ -379,4 +396,7 @@ $('#period').onchange = load;
 $('#dep-mode').onchange = renderDependency;
 $('#cal-prev').onclick = () => { calYear--; renderCalendar(); };
 $('#cal-next').onclick = () => { calYear++; renderCalendar(); };
+$('#cal-details').addEventListener('toggle', () => {
+    if ($('#cal-details').open) renderCalendar();
+});
 load().finally(() => Boot.ready());

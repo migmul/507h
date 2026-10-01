@@ -241,6 +241,27 @@ a {
     max-width: 880px;
 }
 
+.page-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 1rem;
+}
+
+.page-title {
+    font-size: 1.5rem;
+    letter-spacing: -.02em;
+}
+
+.page-head p {
+    margin: .15rem 0 0;
+}
+
+.page-head select {
+    width: auto;
+    margin: 0;
+}
 
 /* ==========================================================================
    5. Utilitaires
@@ -902,6 +923,42 @@ details.more summary:hover {
     margin-left: auto;
 }
 
+/* Chiffres clés en tête de page */
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.25rem;
+}
+
+.tile {
+    padding: 1.1rem 1.25rem;
+}
+
+.tile .big {
+    margin: .15rem 0;
+    font-size: 1.6rem;
+}
+
+.tile p {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* Carte entièrement repliable : le titre est le résumé */
+details.fold > summary {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+details.fold[open] > summary {
+    margin-bottom: 1rem;
+}
+
+details.method {
+    padding: 0 .25rem;
+}
+
 /* ==========================================================================
    10. Modales
    ========================================================================== */
@@ -1160,6 +1217,14 @@ dialog form.stack {
 
 .sw.c2 {
     background: var(--accent);
+}
+
+.cal-bar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: .75rem;
 }
 
 /* ==========================================================================

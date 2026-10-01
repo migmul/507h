@@ -2,57 +2,125 @@
 {% block title %}Statistiques – 507h{% endblock %}
 {% block body %}
 <main class="container">
-    <section class="card">
-        <div class="card-head">
-            <h2>Statistiques</h2>
-            <label class="inline-label">Période
-                <select id="period">
-                    <option value="12m">12 derniers mois</option>
-                    <option value="year">Année en cours</option>
-                    <option value="prev_year">Année précédente</option>
-                    <option value="right">Droit en cours</option>
-                    <option value="all">Depuis le début</option>
-                </select></label>
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Statistiques</h1>
+            <p class="muted small" id="stats-range"></p>
         </div>
-        <p class="muted small" id="stats-note"></p>
+        <select id="period" aria-label="Période">
+            <option value="12m">12 derniers mois</option>
+            <option value="year">Année en cours</option>
+            <option value="prev_year">Année précédente</option>
+            <option value="right">Droit en cours</option>
+            <option value="all">Depuis le début</option>
+        </select>
+    </div>
+
+    <div class="tiles">
+        <section class="card tile">
+            <p class="stat-label">Heures</p>
+            <p class="big" id="t-hours"></p>
+            <p class="muted small">sur la période</p>
+        </section>
+        <section class="card tile">
+            <p class="stat-label">Par semaine</p>
+            <p class="big" id="t-week"></p>
+            <p class="muted small" id="t-week-sub"></p>
+        </section>
+        <section class="card tile">
+            <p class="stat-label">Revenu net par mois</p>
+            <p class="big" id="t-income"></p>
+            <p class="muted small" id="t-income-sub"></p>
+        </section>
+        <section class="card tile">
+            <p class="stat-label">Meilleur mois</p>
+            <p class="big" id="t-best"></p>
+            <p class="muted small" id="t-best-sub"></p>
+        </section>
+    </div>
+
+    <section class="card">
+        <details class="more fold">
+            <summary>Moyennes, médianes et meilleurs mois</summary>
+            <div class="cols-2">
+                <div>
+                    <h2>Heures</h2>
+                    <ul class="kv" id="hours-kpi"></ul>
+                </div>
+                <div>
+                    <h2>Revenus (salaires nets + ARE)</h2>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Meilleur mois</th>
+                                    <th class="num">Moyenne</th>
+                                    <th class="num">Médiane</th>
+                                </tr>
+                            </thead>
+                            <tbody id="income-rows"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </details>
     </section>
 
     <div class="cols-2">
-        <section class="card"><h2>Heures</h2><ul class="kv" id="hours-kpi"></ul></section>
-        <section class="card"><h2>Revenus (salaires nets + ARE)</h2>
-            <div class="table-wrap"><table>
-                <thead><tr><th></th><th>Meilleur mois</th><th class="num">Moyenne</th><th class="num">Médiane</th></tr></thead>
-                <tbody id="income-rows"></tbody></table></div>
-        </section>
-        <section class="card"><h2>Heures par mois</h2><div class="chart" id="chart-hours"></div></section>
-        <section class="card"><h2>Revenu net par mois</h2><div class="chart" id="chart-income"></div></section>
-        <section class="card"><h2>Heures par droit</h2><div class="chart" id="chart-rights"></div></section>
         <section class="card">
-            <div class="card-head"><h2>Dépendance aux employeurs</h2>
-                <select id="dep-mode" class="auto"><option value="hours">Heures</option><option value="net">Salaires nets</option></select></div>
+            <h2>Heures par mois</h2>
+            <div class="chart" id="chart-hours"></div>
+        </section>
+        <section class="card">
+            <div class="card-head">
+                <h2>Revenu net par mois</h2>
+                <span class="tag" id="no-net-tag" hidden></span>
+            </div>
+            <div class="chart" id="chart-income"></div>
+        </section>
+        <section class="card">
+            <h2>Heures par droit</h2>
+            <div class="chart" id="chart-rights"></div>
+        </section>
+        <section class="card">
+            <div class="card-head">
+                <h2>Dépendance aux employeurs</h2>
+                <select id="dep-mode" class="auto" aria-label="Mesure">
+                    <option value="hours">Heures</option>
+                    <option value="net">Salaires nets</option>
+                </select>
+            </div>
             <div class="chart" id="chart-dep"></div>
         </section>
     </div>
 
     <section class="card">
-        <div class="card-head">
-            <h2>Calendrier d'activité</h2>
-            <div class="row">
-                <button class="ghost" id="cal-prev" type="button" aria-label="Année précédente">◀</button>
-                <strong id="cal-year"></strong>
-                <button class="ghost" id="cal-next" type="button" aria-label="Année suivante">▶</button>
+        <details class="more fold" id="cal-details">
+            <summary>Calendrier d'activité</summary>
+            <div class="cal-bar">
+                <div class="legend">
+                    <span><i class="sw c2"></i>Contrat</span>
+                    <span><b class="lg pay">€</b> Virement</span>
+                    <span><b class="lg anniv">★</b> Anniversaire</span>
+                    <span><b class="lg start">▶</b> Début</span>
+                    <span><b class="lg fct">◼</b> FCT</span>
+                    <span><b class="lg end">✕</b> Fin anticipée</span>
+                </div>
+                <div class="row">
+                    <button class="ghost" id="cal-prev" type="button" aria-label="Année précédente">◀</button>
+                    <strong id="cal-year"></strong>
+                    <button class="ghost" id="cal-next" type="button" aria-label="Année suivante">▶</button>
+                </div>
             </div>
-        </div>
-        <div class="legend">
-            <span><i class="sw c2"></i>Jour couvert par un contrat</span>
-            <span><b class="lg pay">€</b> Virement France Travail</span>
-            <span><b class="lg anniv">★</b> Date anniversaire</span>
-            <span><b class="lg start">▶</b> Début d'indemnisation</span>
-            <span><b class="lg fct">◼</b> Fin de contrat retenue</span>
-            <span><b class="lg end">✕</b> Fin effective (réexamen anticipé)</span>
-        </div>
-        <div class="cal-wrap"><div class="cal" id="cal"></div></div>
+            <div class="cal-wrap"><div class="cal" id="cal"></div></div>
+        </details>
     </section>
+
+    <details class="more method">
+        <summary>Méthode de calcul</summary>
+        <p class="muted small" id="method-note"></p>
+    </details>
 </main>
 {% endblock %}
 {% block scripts %}
