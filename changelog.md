@@ -3,6 +3,20 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.10] - 2026-10-01
+
+### Ajouté
+- Mode clair en complément du mode sombre. Par défaut, le thème suit le réglage du système (mode « Auto »).
+- Bouton de thème dans l'en-tête : Auto, Clair, Sombre. Le choix est mémorisé dans le navigateur (`localStorage`).
+- Fichier `static/js/theme.js`, chargé dans `<head>`, qui applique le thème avant l'affichage pour éviter un flash de la mauvaise couleur.
+
+### Modifié
+- Toutes les couleurs de `style.css` sont définies avec `light-dark()` : une seule déclaration par variable pour les deux thèmes.
+- Nouvelles variables : `--hover-strong`, `--shadow`, `--accent-soft`, `--on-accent-soft` (remplace `--accent-dark`).
+- Couleur d'accent légèrement plus foncée en mode clair pour garder un bon contraste avec le texte blanc des boutons.
+- Les graphiques SVG (grille, axes, repère des 507 h, total de l'anneau) utilisent des classes CSS au lieu de couleurs fixes, pour suivre le thème.
+- Le calendrier d'activité utilise des couleurs adaptées au thème (jour courant, contrat simple).
+
 ## [0.9] - 2026-10-01
 
 ### Ajouté

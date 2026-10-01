@@ -102,10 +102,10 @@ function barChart(box, items, o) {
 
     for (let i = 0; i <= 4; i++) {
         const v = (max / 4) * i;
-        svg.append(
-            s('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: '#2a2f3a' }),
-            s('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', fill: '#8b92a5', 'font-size': 11 }, o.fmt(v)));
-    }
+    svg.append(
+        s('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: 'grid' }),
+        s('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'axis' }, o.fmt(v)));
+        }
 
     const bw = iw / items.length;
     const step = Math.ceil(items.length / 12);
@@ -131,19 +131,16 @@ function barChart(box, items, o) {
         }
         if (i % step === 0) {
             svg.append(s('text', {
-                x: gx + bw / 2, y: H - 12, 'text-anchor': 'middle', fill: '#8b92a5', 'font-size': 11,
+                x: gx + bw / 2, y: H - 12, 'text-anchor': 'middle', class: 'axis',
             }, it.label));
         }
     });
 
     if (o.ref) {
         svg.append(
-            s('line', {
-                x1: L, x2: W - R, y1: y(o.ref.value), y2: y(o.ref.value),
-                stroke: '#f5b942', 'stroke-dasharray': '5 4',
-            }),
+            s('line', { x1: L, x2: W - R, y1: y(o.ref.value), y2: y(o.ref.value), class: 'ref' }),
             s('text', {
-                x: W - R, y: y(o.ref.value) - 4, 'text-anchor': 'end', fill: '#f5b942', 'font-size': 11,
+                x: W - R, y: y(o.ref.value) - 4, 'text-anchor': 'end', class: 'ref-text',
             }, o.ref.label));
     }
 
@@ -180,7 +177,7 @@ function donut(box, parts, fmt) {
         off += len;
     });
     svg.append(s('text', {
-        x: 100, y: 106, 'text-anchor': 'middle', fill: '#e8eaf0', 'font-size': 16, 'font-weight': 700,
+        x: 100, y: 106, 'text-anchor': 'middle', class: 'donut-total',
     }, fmt(total)));
 
     const ul = document.createElement('ul');

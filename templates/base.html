@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}507h{% endblock %}</title>
+    <meta name="color-scheme" content="light dark">
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
@@ -19,6 +21,7 @@
                 <a href="{{ url_for('stats_page') }}"{% if page == 'stats_page' %} aria-current="page"{% endif %}>Statistiques</a>
                 <a href="{{ url_for('account_page') }}"{% if page == 'account_page' %} aria-current="page"{% endif %}>Compte</a>
             </nav>
+            <button id="theme-toggle" class="ghost" type="button">Auto</button>
             <button id="logout" class="ghost" type="button">Déconnexion</button>
         </div>
     </header>

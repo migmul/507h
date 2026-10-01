@@ -9,28 +9,47 @@
    1. Variables
    ========================================================================== */
 
+/* ==========================================================================
+   1. Variables
+   Chaque couleur est déclarée une fois avec light-dark(clair, sombre).
+   Le thème est piloté par color-scheme : système par défaut, forcé via
+   l'attribut data-theme posé sur <html> (voir theme.js et nav.js).
+   ========================================================================== */
+
 :root {
-    color-scheme: dark;
+    color-scheme: light dark;
 
-    --bg: #0c0d10;
-    --surface: #14161b;
-    --surface-2: #1c1f26;
-    --surface-3: #262a33;
-    --hover: rgba(255, 255, 255, .04);
-    --line: rgba(255, 255, 255, .07);
+    --bg: light-dark(#f4f5f7, #0c0d10);
+    --surface: light-dark(#ffffff, #14161b);
+    --surface-2: light-dark(#eef0f3, #1c1f26);
+    --surface-3: light-dark(#e1e4ea, #262a33);
+    --hover: light-dark(rgba(0, 0, 0, .04), rgba(255, 255, 255, .04));
+    --hover-strong: light-dark(rgba(0, 0, 0, .07), rgba(255, 255, 255, .06));
+    --line: light-dark(rgba(0, 0, 0, .08), rgba(255, 255, 255, .07));
+    --shadow: light-dark(rgba(20, 24, 32, .15), rgba(0, 0, 0, .5));
 
-    --text: #ececf1;
-    --muted: #8b909c;
+    --text: light-dark(#16181d, #ececf1);
+    --muted: light-dark(#5f6877, #8b909c);
 
-    --accent: #ff6a3d;
-    --accent-hover: #ff8059;
-    --accent-dark: #6b2a1b;
-    --danger: #ff6b6b;
-    --ok: #4cd4a0;
-    --warn: #f2b84b;
-    --info: #5ac8fa;
+    --accent: light-dark(#e8501f, #ff6a3d);
+    --accent-hover: light-dark(#d4440f, #ff8059);
+    --accent-soft: light-dark(#fbd5c8, #6b2a1b);
+    --on-accent-soft: light-dark(#5a1d0e, #ffffff);
+
+    --danger: light-dark(#d93b3b, #ff6b6b);
+    --ok: light-dark(#11875d, #4cd4a0);
+    --warn: light-dark(#b7791f, #f2b84b);
+    --info: light-dark(#0b7bb5, #5ac8fa);
 
     --radius: 12px;
+}
+
+:root[data-theme="light"] {
+    color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
 }
 
 
@@ -681,7 +700,7 @@ th.num .sort {
     white-space: pre-line;
     background: var(--surface-3);
     border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+    box-shadow: 0 8px 24px var(--shadow);
     pointer-events: none;
 }
 
@@ -699,7 +718,7 @@ dialog {
     background: var(--surface);
     border: 0;
     border-radius: 16px;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, .6);
+    box-shadow: 0 24px 60px var(--shadow);
 }
 
 dialog::backdrop {
@@ -755,7 +774,7 @@ dialog form .row {
 }
 
 .hz:hover {
-    fill: rgba(255, 255, 255, .05);
+    fill: var(--hover-strong);
 }
 
 /* Anneau de dépendance aux employeurs */
@@ -796,6 +815,30 @@ dialog form .row {
     opacity: .8;
 }
 
+.chart .grid {
+    stroke: var(--line);
+}
+
+.chart .axis {
+    fill: var(--muted);
+    font-size: 11px;
+}
+
+.chart .ref {
+    stroke: var(--warn);
+    stroke-dasharray: 5 4;
+}
+
+.chart .ref-text {
+    fill: var(--warn);
+    font-size: 11px;
+}
+
+.chart .donut-total {
+    fill: var(--text);
+    font-size: 16px;
+    font-weight: 700;
+}
 
 /* ==========================================================================
    12. Calendrier d'activité
@@ -839,8 +882,8 @@ dialog form .row {
 }
 
 .cd.c1 {
-    color: #fff;
-    background: var(--accent-dark);
+    color: var(--on-accent-soft);
+    background: var(--accent-soft);
 }
 
 .cd.c2 {
@@ -849,7 +892,7 @@ dialog form .row {
 }
 
 .cd.today {
-    outline: 1px solid #fff;
+    outline: 1px solid var(--text);
 }
 
 .cd:hover {
