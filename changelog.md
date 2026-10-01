@@ -3,6 +3,15 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.11.1] - 2026-10-01
+
+### Modifié
+- Liste des contrats : seule l'année en cours est dépliée par défaut. Les autres années sont repliées et se déplient d'un clic.
+- Pendant une recherche ou un filtre, toutes les années sont dépliées pour que les résultats ne soient pas masqués. Un changement de recherche ou de filtre remet l'état par défaut.
+- Après l'enregistrement d'un contrat, son année est dépliée automatiquement.
+- Le résumé sous la recherche n'affiche plus que le nombre de contrats (les totaux d'heures et de net font double emploi avec la page Statistiques).
+- Les lignes d'année n'affichent plus que le nombre de contrats.
+
 ## [0.11] - 2026-10-01
 
 ### Ajouté

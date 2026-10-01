@@ -18,7 +18,8 @@ let employers = [];
 let editingDocs = [];
 let dupMap = new Map();
 const view = { q: '', year: '', employer: '', status: '', group: true };
-const collapsed = new Set();
+const THIS_YEAR = String(new Date().getFullYear());
+const toggled = new Map();    // année -> dépliée (true) ou repliée (false), choisi à la main
 
 const COLUMNS = [
     { key: 'employer', label: 'Employeur' },
@@ -99,6 +100,18 @@ function isFiltered() {
     return Boolean(view.q || view.year || view.employer || view.status);
 }
 
+// Par défaut, seule l'année en cours est dépliée ; pendant une recherche ou un filtre, tout l'est.
+function isOpen(year) {
+    if (toggled.has(year)) return toggled.get(year);
+    return isFiltered() || year === THIS_YEAR;
+}
+
+function setView(patch) {
+    Object.assign(view, patch);
+    toggled.clear();
+    render();
+}
+
 function filteredContracts() {
     const terms = fold(view.q).split(/\s+/).filter(Boolean);
     return contracts.filter((c) => {
@@ -130,16 +143,6 @@ function sortedContracts(list) {
         const r = col.num ? va - vb : String(va).localeCompare(String(vb), 'fr', { sensitivity: 'base' });
         return r * dir || b.id - a.id;
     });
-}
-
-function totals(items) {
-    let hours = 0, gross = 0, net = 0, nGross = 0, nNet = 0;
-    for (const c of items) {
-        hours += c.hours;
-        if (c.gross != null) { gross += c.gross; nGross++; }
-        if (c.net != null) { net += c.net; nNet++; }
-    }
-    return { hours, gross: nGross ? gross : null, net: nNet ? net : null };
 }
 
 function fillSelect(select, options, key) {
@@ -217,13 +220,11 @@ function contractRow(c) {
 }
 
 function groupRow(year, items) {
-    const t = totals(items);
-    const open = !collapsed.has(year);
+    const open = isOpen(year);
     const tr = document.createElement('tr');
     tr.className = 'group-row';
     tr.addEventListener('click', () => {
-        if (collapsed.has(year)) collapsed.delete(year);
-        else collapsed.add(year);
+        toggled.set(year, !open);
         render();
     });
     const td = el('td');
@@ -232,8 +233,7 @@ function groupRow(year, items) {
     const toggle = el('button', `${open ? '▾' : '▸'} ${year}`, 'group-toggle');
     toggle.type = 'button';
     toggle.setAttribute('aria-expanded', String(open));
-    const sums = `${items.length} contrat(s) · ${fh(t.hours)}` + (t.net != null ? ` · ${eur.format(t.net)} net` : '');
-    line.append(toggle, el('span', sums, 'muted'));
+    line.append(toggle, el('span', `${items.length} contrat(s)`, 'muted'));
     td.append(line);
     tr.append(td);
     return tr;
@@ -252,7 +252,7 @@ function renderGroups(tbody, list) {
     for (const y of years) {
         const items = groups.get(y);
         tbody.append(groupRow(y, items));
-        if (!collapsed.has(y)) items.forEach((c) => tbody.append(contractRow(c)));
+        if (isOpen(y)) items.forEach((c) => tbody.append(contractRow(c)));
     }
 }
 
@@ -261,10 +261,8 @@ function render() {
     const tbody = $('#rows');
     tbody.replaceChildren();
 
-    const t = totals(list);
     $('#result-info').textContent = contracts.length
-        ? `${list.length} contrat(s)${list.length !== contracts.length ? ` sur ${contracts.length}` : ''} · ${fh(t.hours)}` +
-          (t.net != null ? ` · ${eur.format(t.net)} net` : '')
+        ? `${list.length} contrat(s)${list.length !== contracts.length ? ` sur ${contracts.length}` : ''}`
         : '';
     $('#reset-filters').hidden = !isFiltered();
     const empty = $('#empty');
@@ -407,6 +405,7 @@ form.addEventListener('submit', async (e) => {
             await api(`/api/contracts/${id}/documents`, 'POST', fd);
             form.elements['file_' + kind].value = '';
         }
+        toggled.set(payload.end_date.slice(0, 4), true);    // montre le contrat qu'on vient d'enregistrer
         dialog.close();
         load();
     } catch (ex) {
@@ -418,18 +417,17 @@ form.addEventListener('submit', async (e) => {
 });
 
 /* ---------- Barre d'outils ---------- */
-$('#q').addEventListener('input', (e) => { view.q = e.target.value; render(); });
-$('#f-year').addEventListener('change', (e) => { view.year = e.target.value; render(); });
-$('#f-employer').addEventListener('change', (e) => { view.employer = e.target.value; render(); });
-$('#f-status').addEventListener('change', (e) => { view.status = e.target.value; render(); });
-$('#group').addEventListener('change', (e) => { view.group = e.target.checked; render(); });
+$('#q').addEventListener('input', (e) => setView({ q: e.target.value }));
+$('#f-year').addEventListener('change', (e) => setView({ year: e.target.value }));
+$('#f-employer').addEventListener('change', (e) => setView({ employer: e.target.value }));
+$('#f-status').addEventListener('change', (e) => setView({ status: e.target.value }));
+$('#group').addEventListener('change', (e) => setView({ group: e.target.checked }));
 $('#reset-filters').onclick = () => {
-    Object.assign(view, { q: '', year: '', employer: '', status: '' });
     $('#q').value = '';
     $('#f-year').value = '';
     $('#f-employer').value = '';
     $('#f-status').value = '';
-    render();
+    setView({ q: '', year: '', employer: '', status: '' });
 };
 
 renderHead();
