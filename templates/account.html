@@ -4,75 +4,71 @@
 <header class="topbar">
     <h1>507<span>h</span></h1>
     <nav class="row">
-        <a class="ghost btn" href="/">Mes contrats</a>
+        <a class="ghost btn" href="/">← Mes contrats</a>
         <a class="ghost btn" href="/intermittence">Intermittence</a>
         <a class="ghost btn" href="/stats">Statistiques</a>
         <button id="logout" class="ghost">Déconnexion</button>
     </nav>
 </header>
 <main class="container">
-    <div class="cols-2">
-        <div class="col">
-            <section class="card">
-                <h2>Mon compte</h2>
-                <p>Adresse e-mail : <strong id="acc-email">…</strong></p>
-                <p class="muted small" id="acc-stats"></p>
-            </section>
+    <div class="cols-2 stretch">
+        <section class="card span-2">
+            <h2>Mon compte</h2>
+            <p>Adresse e-mail : <strong id="acc-email">…</strong></p>
+            <p class="muted small" id="acc-stats"></p>
+        </section>
 
-            <section class="card">
-                <h2>Changer d'adresse e-mail</h2>
-                <form id="email-form" class="stack" novalidate>
-                    <label>Nouvelle adresse <input type="email" name="email" autocomplete="email" required></label>
-                    <label>Mot de passe actuel <input type="password" name="password" autocomplete="current-password" required></label>
-                    <p class="msg" role="alert"></p>
-                    <button class="primary inline" type="submit">Modifier l'e-mail</button>
-                </form>
-            </section>
+        <section class="card">
+            <h2>Changer d'adresse e-mail</h2>
+            <form id="email-form" class="stack" novalidate>
+                <label>Nouvelle adresse <input type="email" name="email" autocomplete="email" required></label>
+                <label>Mot de passe actuel <input type="password" name="password" autocomplete="current-password" required></label>
+                <p class="msg" role="alert"></p>
+                <button class="primary inline" type="submit">Modifier l'e-mail</button>
+            </form>
+        </section>
 
-            <section class="card">
-                <h2>Changer de mot de passe</h2>
-                <form id="password-form" class="stack" novalidate>
-                    <label>Mot de passe actuel <input type="password" name="current" autocomplete="current-password" required></label>
-                    <label>Nouveau mot de passe <input type="password" name="new" minlength="12" autocomplete="new-password" required></label>
-                    <label>Confirmer le nouveau mot de passe <input type="password" name="confirm" minlength="12" autocomplete="new-password" required></label>
-                    <p class="muted small">12 caractères minimum. Les autres appareils seront déconnectés.</p>
-                    <p class="msg" role="alert"></p>
-                    <button class="primary inline" type="submit">Modifier le mot de passe</button>
-                </form>
-            </section>
-        </div>
+        <section class="card">
+            <h2>Changer de mot de passe</h2>
+            <form id="password-form" class="stack" novalidate>
+                <label>Mot de passe actuel <input type="password" name="current" autocomplete="current-password" required></label>
+                <label>Nouveau mot de passe <input type="password" name="new" minlength="12" autocomplete="new-password" required></label>
+                <label>Confirmer le nouveau mot de passe <input type="password" name="confirm" minlength="12" autocomplete="new-password" required></label>
+                <p class="muted small">12 caractères minimum. Les autres appareils seront déconnectés.</p>
+                <p class="msg" role="alert"></p>
+                <button class="primary inline" type="submit">Modifier le mot de passe</button>
+            </form>
+        </section>
 
-        <div class="col">
-            <section class="card">
-                <h2>Sessions</h2>
-                <p class="muted">Déconnecte tous les autres appareils connectés à ton compte.</p>
-                <p class="msg" id="misc-msg" role="alert"></p>
-                <button class="ghost" id="logout-all" type="button">Se déconnecter partout</button>
-            </section>
+        <section class="card">
+            <h2>Sessions</h2>
+            <p class="muted">Déconnecte tous les autres appareils connectés à ton compte.</p>
+            <p class="msg" id="misc-msg" role="alert"></p>
+            <button class="ghost" id="logout-all" type="button">Se déconnecter partout</button>
+        </section>
 
-            <section class="card">
-                <h2>Mes données</h2>
-                <p class="muted">Exporte tes contrats, tes droits, tes virements et tes PDF dans une archive ZIP. Pour importer, choisis le fichier <strong>donnees.json</strong> de cette archive : les doublons sont ignorés et les PDF ne sont pas importés.</p>
-                <p><a class="ghost btn" href="/api/account/export">Exporter mes données (ZIP)</a></p>
-                <form id="import-form" class="stack" novalidate>
-                    <label>Fichier JSON (2 Mo max)
-                        <input type="file" name="file" accept="application/json,.json" required></label>
-                    <p class="msg" role="alert"></p>
-                    <button class="primary inline" type="submit">Importer</button>
-                </form>
-            </section>
+        <section class="card">
+            <h2>Mes données</h2>
+            <p class="muted">Exporte tes contrats, tes droits, tes virements et tes PDF dans une archive ZIP. Pour importer, choisis le fichier <strong>donnees.json</strong> de cette archive : les doublons sont ignorés et les PDF ne sont pas importés.</p>
+            <p><a class="ghost btn" href="/api/account/export">Exporter mes données (ZIP)</a></p>
+            <form id="import-form" class="stack" novalidate>
+                <label>Fichier JSON (2 Mo max)
+                    <input type="file" name="file" accept="application/json,.json" required></label>
+                <p class="msg" role="alert"></p>
+                <button class="primary inline" type="submit">Importer</button>
+            </form>
+        </section>
 
-            <section class="card danger-zone">
-                <h2>Supprimer mon compte</h2>
-                <p class="muted">Action irréversible : contrats et documents PDF sont effacés définitivement. Pense à exporter tes données avant.</p>
-                <form id="delete-form" class="stack" novalidate>
-                    <label>Mot de passe <input type="password" name="password" autocomplete="current-password" required></label>
-                    <label>Tape <strong>SUPPRIMER</strong> pour confirmer <input name="confirm" autocomplete="off" required></label>
-                    <p class="msg" role="alert"></p>
-                    <button class="primary inline danger-btn" type="submit">Supprimer définitivement</button>
-                </form>
-            </section>
-        </div>
+        <section class="card danger-zone span-2">
+            <h2>Supprimer mon compte</h2>
+            <p class="muted">Action irréversible : contrats et documents PDF sont effacés définitivement. Pense à exporter tes données avant.</p>
+            <form id="delete-form" class="stack" novalidate>
+                <label>Mot de passe <input type="password" name="password" autocomplete="current-password" required></label>
+                <label>Tape <strong>SUPPRIMER</strong> pour confirmer <input name="confirm" autocomplete="off" required></label>
+                <p class="msg" role="alert"></p>
+                <button class="primary inline danger-btn" type="submit">Supprimer définitivement</button>
+            </form>
+        </section>
     </div>
 </main>
 <footer class="footer muted small">507h v{{ app_version }}</footer>

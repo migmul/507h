@@ -3,6 +3,18 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.8.1] - 2026-10-01
+
+### Modifié
+- Page « Mon compte » réorganisée en rangées : « Mon compte » ; changement d'e-mail et de mot de passe ; sessions et données ; suppression du compte.
+- Statistiques : les graphiques affichent une infobulle au survol (mois, valeurs détaillées, part de chaque employeur, détail de chaque jour du calendrier).
+- Statistiques : la période « Depuis la FCT du droit en cours » utilise la même base que la page Intermittence (lendemain de la FCT). Elle s'arrête à aujourd'hui au lieu de la fin du mois.
+- Statistiques : les mois incomplets (mois en cours, premier mois partiel) sont exclus des moyennes et médianes et affichés plus clairs dans les graphiques.
+
+### Corrigé
+- Statistiques : la période du droit en cours commençait au premier jour du mois et comptait des heures antérieures à la FCT (312 h au lieu de 232 h dans l'exemple observé).
+- Statistiques : les virements de la période du droit en cours sont filtrés sur leur date de versement, comme les totaux de la page Intermittence.
+
 ## [0.8] - 2026-10-01
 
 ### Ajouté

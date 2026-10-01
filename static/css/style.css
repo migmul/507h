@@ -89,7 +89,6 @@ td.comment { white-space: normal; max-width: 260px; }
 .container { max-width: 1200px; }
 .container > *, .col > * { min-width: 0; }
 .cols-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
-.col { display: grid; gap: 1rem; align-content: start; min-width: 0; }
 @media (max-width: 900px) { .cols-2 { grid-template-columns: minmax(0, 1fr); } }
 
 .inline-label { display: flex; align-items: center; gap: .5rem; margin: 0; }
@@ -120,3 +119,45 @@ td.comment { white-space: normal; max-width: 260px; }
 .m-end::after { content: '✕'; color: #ff6b6b; }
 .lg.anniv { color: #f5b942; } .lg.start, .lg.fct { color: #4cc9f0; } .lg.end { color: #ff6b6b; }
 .sw.c2 { background: var(--accent); }
+.span-2 {
+    grid-column: 1 / -1;
+}
+
+.cols-2.stretch {
+    align-items: stretch;
+}
+
+.tip {
+    position: fixed;
+    z-index: 50;
+    max-width: 280px;
+    padding: .5rem .7rem;
+    background: #0b0d11;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: .85rem;
+    white-space: pre-line;
+    pointer-events: none;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+}
+
+.hz {
+    fill: transparent;
+}
+
+.hz:hover {
+    fill: rgba(255, 255, 255, .07);
+}
+
+.seg {
+    cursor: pointer;
+    transition: opacity .15s;
+}
+
+.seg:hover {
+    opacity: .8;
+}
+
+.cd:hover {
+    outline: 1px solid var(--text);
+}
