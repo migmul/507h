@@ -3,6 +3,22 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.9] - 2026-10-01
+
+### Ajouté
+- En-tête commun dans `base.html` : même navigation sur toutes les pages (Contrats, Intermittence, Statistiques, Compte, Déconnexion), avec la page courante mise en évidence (`aria-current`).
+- Fichier `static/js/nav.js` pour la déconnexion, partagé par toutes les pages.
+
+### Modifié
+- Refonte visuelle plus sobre : en-tête fixe translucide, navigation en liens, cartes sans bordure, champs et boutons plus discrets, tableaux allégés, badges teintés, barre de progression plus fine, modales avec fond flouté.
+- Le pied de page (version) est désormais dans `base.html`.
+- Les pages n'ont plus leur propre en-tête ni leur propre pied de page ; la page de connexion n'affiche pas la navigation.
+- Suppression des émojis dans les libellés (progression, documents).
+
+### Supprimé
+- Règles CSS devenues inutiles : `.topbar`, `.tabs .active` avec bordure.
+- Gestionnaires de déconnexion dupliqués dans `dashboard.js`, `intermittence.js`, `stats.js` et `account.js`.
+
 ## [0.8.2] - 2026-10-01
 
 ### Modifié

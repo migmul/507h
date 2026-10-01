@@ -65,7 +65,7 @@ function renderCurrent(o) {
   const p = o.projection;
   $('#proj-bar').style.width = Math.min(100, (p.hours_total / 507) * 100) + '%';
   $('#proj-hours').textContent = fh(p.hours_total);
-  $('#proj-msg').textContent = p.hours_needed > 0 ? `· il manque ${fh(p.hours_needed)}` : '· seuil atteint 🎉';
+  $('#proj-msg').textContent = p.hours_needed > 0 ? `· il manque ${fh(p.hours_needed)}` : '· seuil atteint';
   $('#early-msg').hidden = !p.can_request_early;
   kv($('#proj-detail'), [
     ['Heures comptées depuis', `${fdate(p.window_start)} (lendemain de la FCT)`],
@@ -187,5 +187,4 @@ $('#edit-current').onclick = () => {
   const r = state.rights.find((x) => x.id === state.overview.right_id);
   if (r) openRight(r);
 };
-$('#logout').onclick = async () => { await api('/api/logout', 'POST'); location.href = '/login'; };
 load();

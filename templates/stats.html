@@ -1,15 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Statistiques – 507h{% endblock %}
 {% block body %}
-<header class="topbar">
-    <h1>507<span>h</span></h1>
-    <nav class="row">
-        <a class="ghost btn" href="/">Mes contrats</a>
-        <a class="ghost btn" href="/intermittence">Intermittence</a>
-        <a class="ghost btn" href="/account">Mon compte</a>
-        <button id="logout" class="ghost">Déconnexion</button>
-    </nav>
-</header>
 <main class="container">
     <section class="card">
         <div class="card-head">
@@ -63,7 +54,6 @@
         <div class="cal-wrap"><div class="cal" id="cal"></div></div>
     </section>
 </main>
-<footer class="footer muted small">507h v{{ app_version }}</footer>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/stats.js') }}"></script>

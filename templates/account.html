@@ -1,15 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Mon compte – 507h{% endblock %}
 {% block body %}
-<header class="topbar">
-    <h1>507<span>h</span></h1>
-    <nav class="row">
-        <a class="ghost btn" href="/">← Mes contrats</a>
-        <a class="ghost btn" href="/intermittence">Intermittence</a>
-        <a class="ghost btn" href="/stats">Statistiques</a>
-        <button id="logout" class="ghost">Déconnexion</button>
-    </nav>
-</header>
 <main class="container">
     <div class="cols-2 stretch">
         <section class="card span-2">
@@ -71,7 +62,6 @@
         </section>
     </div>
 </main>
-<footer class="footer muted small">507h v{{ app_version }}</footer>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/account.js') }}"></script>

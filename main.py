@@ -18,7 +18,7 @@ from flask import (Flask, abort, g, jsonify, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.8"
+APP_VERSION = "0.9"
 
 BASE = Path(__file__).parent
 INSTANCE = BASE / "instance"

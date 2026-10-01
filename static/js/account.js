@@ -89,5 +89,4 @@ $('#logout-all').onclick = async () => {
         setMsg($('#misc-msg'), ex.message);
     }
 };
-$('#logout').onclick = async () => { await api('/api/logout', 'POST'); location.href = '/login'; };
 loadInfo();

@@ -93,7 +93,7 @@ function render() {
             el('td', c.employer), mission,
             el('td', fdate(c.start_date)), el('td', fdate(c.end_date)),
             el('td', c.hours, 'num'), el('td', money(c.gross), 'num'), el('td', money(c.net), 'num'),
-            el('td', c.documents.length ? `📎 ${c.documents.length}` : '–', 'num'));
+            el('td', c.documents.length ? `${c.documents.length} PDF` : '–', 'num'));
         const actions = el('td');
         const edit = el('button', 'Modifier', 'ghost');
         edit.onclick = () => openDialog(c);
@@ -116,7 +116,7 @@ async function loadSummary() {
   $('#range').textContent = ` (du ${fdate(s.window_start)} au ${fdate(s.window_end)})`;
   const left = Math.max(0, s.target - s.hours);
   $('#remaining').textContent = left > 0
-    ? `Il te manque ${Math.round(left * 10) / 10} h.` : 'Seuil des 507 h atteint 🎉';
+    ? `Il te manque ${Math.round(left * 10) / 10} h.` : 'Seuil des 507 h atteint';
   $('#mode').textContent = s.mode === 'since_fct'
     ? `Heures depuis ta fin de contrat retenue du ${fdate(s.fct_date)}` +
       (s.anniversary_date ? ` · date anniversaire le ${fdate(s.anniversary_date)}` : '')
@@ -225,6 +225,5 @@ form.addEventListener('submit', async (e) => {
     }
 });
 
-$('#logout').onclick = async () => { await api('/api/logout', 'POST'); location.href = '/login'; };
 renderHead();
 load();

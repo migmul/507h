@@ -382,8 +382,4 @@ $('#period').onchange = load;
 $('#dep-mode').onchange = renderDependency;
 $('#cal-prev').onclick = () => { calYear--; renderCalendar(); };
 $('#cal-next').onclick = () => { calYear++; renderCalendar(); };
-$('#logout').onclick = async () => {
-    await api('/api/logout', 'POST');
-    location.href = '/login';
-};
 load();

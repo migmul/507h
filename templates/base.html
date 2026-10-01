@@ -8,7 +8,27 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    {% block header %}
+    {% set page = request.endpoint %}
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="{{ url_for('dashboard') }}">507<span>h</span></a>
+            <nav class="site-nav" aria-label="Navigation principale">
+                <a href="{{ url_for('dashboard') }}"{% if page == 'dashboard' %} aria-current="page"{% endif %}>Contrats</a>
+                <a href="{{ url_for('intermittence_page') }}"{% if page == 'intermittence_page' %} aria-current="page"{% endif %}>Intermittence</a>
+                <a href="{{ url_for('stats_page') }}"{% if page == 'stats_page' %} aria-current="page"{% endif %}>Statistiques</a>
+                <a href="{{ url_for('account_page') }}"{% if page == 'account_page' %} aria-current="page"{% endif %}>Compte</a>
+            </nav>
+            <button id="logout" class="ghost" type="button">Déconnexion</button>
+        </div>
+    </header>
+    {% endblock %}
+
     {% block body %}{% endblock %}
+
+    <footer class="footer">507h v{{ app_version }}</footer>
+
+    <script src="{{ url_for('static', filename='js/nav.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
