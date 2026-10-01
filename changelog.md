@@ -3,6 +3,16 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.10.1] - 2026-10-01
+
+### Modifié
+- Le sélecteur de thème (Auto, Clair, Sombre) quitte l'en-tête et passe dans une carte « Apparence » de la page Compte. Le réglage reste propre au navigateur (`localStorage`) et ne suit pas le compte ; la carte l'indique.
+- `theme.js` expose un petit objet `Theme` (`get`, `set`) utilisé par la page Compte et synchronise le thème entre les onglets ouverts.
+- La carte « Mon compte » ne prend plus toute la largeur : elle partage la première rangée avec « Apparence ».
+
+### Supprimé
+- Bouton de thème dans l'en-tête et code de thème dans `nav.js` (qui ne gère plus que la déconnexion).
+
 ## [0.10] - 2026-10-01
 
 ### Ajouté

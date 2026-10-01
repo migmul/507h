@@ -89,4 +89,26 @@ $('#logout-all').onclick = async () => {
         setMsg($('#misc-msg'), ex.message);
     }
 };
+
+/* ---------- Apparence (propre au navigateur) ---------- */
+const themeButtons = document.querySelectorAll('[data-theme-choice]');
+
+function showTheme() {
+    const current = Theme.get();
+    themeButtons.forEach((b) => {
+        const on = b.dataset.themeChoice === current;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', String(on));
+    });
+}
+
+themeButtons.forEach((b) => {
+    b.addEventListener('click', () => {
+        Theme.set(b.dataset.themeChoice);
+        showTheme();
+    });
+});
+
+showTheme();
+
 loadInfo();
