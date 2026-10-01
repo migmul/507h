@@ -3,6 +3,28 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.12] - 2026-10-01
+
+### Ajouté
+- Envoi d'e-mails par SMTP, configuré par variables d'environnement (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `APP_BASE_URL`), avec envoi en tâche de fond. Mode `MAIL_CONSOLE=1` pour tester sans serveur SMTP.
+- Vérification de l'adresse e-mail : lien envoyé à l'inscription (valable 48 h), bandeau tant que l'adresse n'est pas vérifiée, renvoi du lien depuis la page Compte.
+- Récupération de mot de passe : pages `/forgot` et `/reset`, lien valable 1 h à usage unique, message identique que le compte existe ou non, réservée aux adresses vérifiées. La réinitialisation déconnecte tous les appareils.
+- Double authentification par code temporaire (TOTP, application d'authentification) : activation depuis la page Compte avec QR code, 10 codes de récupération à usage unique, désactivation et régénération des codes protégées par le mot de passe et un code, connexion en deux étapes, refus de rejouer un code déjà utilisé, secret chiffré au repos.
+- Changement d'adresse e-mail confirmé par un lien envoyé à la nouvelle adresse.
+- Tables `email_tokens` et `recovery_codes`, colonnes `email_verified`, `totp_secret`, `totp_enabled` et `totp_last_step` sur `users` (migration automatique).
+- Dépendance `segno` (génération du QR code en SVG).
+
+### Modifié
+- Page Compte réorganisée : état de l'adresse e-mail, carte « Double authentification », grille en quatre rangées.
+- Contrôle d'adresse e-mail plus strict (caractères de contrôle et séparateurs refusés).
+- Activer la double authentification ou réinitialiser le mot de passe déconnecte les autres appareils.
+- Les adresses existantes sont considérées comme non vérifiées tant que le lien n'a pas été ouvert (sans effet si l'envoi d'e-mails n'est pas configuré).
+
+### Sécurité
+- Jetons de lien stockés sous forme d'empreinte HMAC, à usage unique et à durée limitée.
+- Liens construits à partir de `APP_BASE_URL` et jamais de l'en-tête `Host`.
+- Limitation des demandes de lien et des essais de code.
+
 ## [0.11.1] - 2026-10-01
 
 ### Modifié

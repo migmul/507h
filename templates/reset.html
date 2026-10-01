@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Nouveau mot de passe – 507h{% endblock %}
+{% block header %}{% endblock %}
+{% block body %}
+<main class="auth card">
+    <h1>507<span>h</span></h1>
+    <h2>Nouveau mot de passe</h2>
+    <form id="reset-form" class="stack" novalidate>
+        <label>Nouveau mot de passe
+            <input type="password" name="password" minlength="12" autocomplete="new-password" required>
+        </label>
+        <label>Confirmer le mot de passe
+            <input type="password" name="password_confirm" minlength="12" autocomplete="new-password" required>
+        </label>
+        <p class="muted small">12 caractères minimum. Tous tes appareils seront déconnectés.</p>
+        <p class="msg" role="alert"></p>
+        <button class="primary" type="submit">Enregistrer</button>
+    </form>
+    <p class="small"><a href="{{ url_for('login_page') }}">Retour à la connexion</a></p>
+</main>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/recover.js') }}"></script>
+{% endblock %}

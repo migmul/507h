@@ -6,6 +6,11 @@
         <section class="card">
             <h2>Mon compte</h2>
             <p>Adresse e-mail : <strong id="acc-email">…</strong></p>
+            <div id="mail-status" hidden>
+                <span class="badge" id="mail-badge"></span>
+                <button class="ghost" id="resend-btn" type="button" hidden>Renvoyer le lien</button>
+                <p class="msg" id="mail-msg" role="alert"></p>
+            </div>
             <p class="muted small" id="acc-stats"></p>
         </section>
 
@@ -19,7 +24,7 @@
             </div>
             <p class="muted small">Auto suit le réglage de ton système.</p>
         </section>
-        
+
         <section class="card">
             <h2>Changer d'adresse e-mail</h2>
             <form id="email-form" class="stack" novalidate>
@@ -43,6 +48,26 @@
         </section>
 
         <section class="card">
+            <h2>Double authentification</h2>
+            <p class="muted" id="twofa-status"></p>
+            <div id="twofa-off" hidden>
+                <p class="muted small">Ajoute un code temporaire, généré par une application d'authentification, à ta connexion.</p>
+                <button class="primary inline" id="twofa-start" type="button">Activer</button>
+            </div>
+            <div id="twofa-on" hidden>
+                <form id="twofa-manage" class="stack" novalidate>
+                    <label>Mot de passe <input type="password" name="password" autocomplete="current-password" required></label>
+                    <label>Code à 6 chiffres ou code de récupération <input name="code" autocomplete="one-time-code" required></label>
+                    <p class="msg" role="alert"></p>
+                    <div class="row">
+                        <button class="danger-btn" type="submit">Désactiver</button>
+                        <button class="ghost" id="twofa-regen" type="button">Régénérer les codes de récupération</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="card">
             <h2>Sessions</h2>
             <p class="muted">Déconnecte tous les autres appareils connectés à ton compte.</p>
             <p class="msg" id="misc-msg" role="alert"></p>
@@ -61,7 +86,7 @@
             </form>
         </section>
 
-        <section class="card danger-zone span-2">
+        <section class="card danger-zone">
             <h2>Supprimer mon compte</h2>
             <p class="muted">Action irréversible : contrats et documents PDF sont effacés définitivement. Pense à exporter tes données avant.</p>
             <form id="delete-form" class="stack" novalidate>
@@ -73,6 +98,45 @@
         </section>
     </div>
 </main>
+
+<dialog id="twofa-dialog">
+    <div class="dialog-body">
+        <div class="card-head">
+            <h2 id="tf-title">Activer la double authentification</h2>
+            <button type="button" class="ghost" id="tf-close" aria-label="Fermer">✕</button>
+        </div>
+
+        <div id="tf-step-1">
+            <p class="muted">Confirme ton mot de passe pour commencer.</p>
+            <form id="tf-pass-form" class="stack" novalidate>
+                <label>Mot de passe <input type="password" name="password" autocomplete="current-password" required></label>
+                <p class="msg" role="alert"></p>
+                <button class="primary inline" type="submit">Continuer</button>
+            </form>
+        </div>
+
+        <div id="tf-step-2" hidden>
+            <p>1. Scanne ce QR code avec ton application d'authentification (Aegis, 2FAS, Bitwarden, Google Authenticator…).</p>
+            <img class="qr" id="tf-qr" alt="QR code de configuration" width="200" height="200">
+            <p class="muted small">Ou saisis cette clé manuellement : <code id="tf-secret"></code></p>
+            <p>2. Saisis le code à 6 chiffres affiché par l'application.</p>
+            <form id="tf-code-form" class="stack" novalidate>
+                <label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+                <p class="msg" role="alert"></p>
+                <button class="primary inline" type="submit">Activer</button>
+            </form>
+        </div>
+
+        <div id="tf-step-3" hidden>
+            <p><strong>Conserve ces codes de récupération.</strong> Chacun ne sert qu'une fois et remplace le code de l'application si tu perds ton téléphone. Ils ne seront plus affichés.</p>
+            <pre class="codes" id="tf-codes"></pre>
+            <div class="row">
+                <button class="ghost" id="tf-copy" type="button">Copier</button>
+                <button class="primary inline" id="tf-done" type="button">J'ai conservé mes codes</button>
+            </div>
+        </div>
+    </div>
+</dialog>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/account.js') }}"></script>

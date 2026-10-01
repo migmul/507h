@@ -9,6 +9,12 @@
     <script src="{{ url_for('static', filename='js/early.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
+    {% if email_unverified %}
+    <div class="notice">
+        Ton adresse e-mail n'est pas encore vérifiée.
+        <a href="{{ url_for('account_page') }}">Vérifier mon adresse</a>
+    </div>
+    {% endif %}
 <body>
     {% block header %}
     {% set page = request.endpoint %}

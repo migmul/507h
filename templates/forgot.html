@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Mot de passe oublié – 507h{% endblock %}
+{% block header %}{% endblock %}
+{% block body %}
+<main class="auth card">
+    <h1>507<span>h</span></h1>
+    <h2>Mot de passe oublié</h2>
+    <p class="muted">Saisis l'adresse e-mail de ton compte. Si elle est vérifiée, tu recevras un lien valable 1 heure.</p>
+    <form id="forgot-form" class="stack" novalidate>
+        <label>Email
+            <input type="email" name="email" autocomplete="email" required>
+        </label>
+        <p class="msg" role="alert"></p>
+        <button class="primary" type="submit">Envoyer le lien</button>
+    </form>
+    <p class="small"><a href="{{ url_for('login_page') }}">Retour à la connexion</a></p>
+</main>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/recover.js') }}"></script>
+{% endblock %}

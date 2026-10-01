@@ -5,23 +5,39 @@
 <main class="auth card">
     <h1>507<span>h</span></h1>
     <p class="muted">Suis ton parcours d'intermittent, simplement.</p>
-    <div class="tabs">
-        <button type="button" id="tab-login" class="active">Connexion</button>
-        <button type="button" id="tab-register">Inscription</button>
+
+    <div id="step-credentials">
+        <div class="tabs">
+            <button type="button" id="tab-login" class="active">Connexion</button>
+            <button type="button" id="tab-register">Inscription</button>
+        </div>
+        <form id="auth-form" novalidate>
+            <label>Email
+                <input type="email" name="email" autocomplete="email" required>
+            </label>
+            <label>Mot de passe
+                <input type="password" name="password" minlength="12" autocomplete="current-password" required>
+            </label>
+            <label id="confirm-label" hidden>Confirmer le mot de passe
+                <input type="password" name="password_confirm" minlength="12" autocomplete="new-password">
+            </label>
+            <p class="muted small" id="pwd-hint" hidden>12 caractères minimum.</p>
+            <p class="error" id="auth-error" role="alert"></p>
+            <button class="primary" type="submit" id="auth-submit">Se connecter</button>
+        </form>
+        {% if mail_on %}
+        <p class="small" id="forgot-row"><a href="{{ url_for('forgot_page') }}">Mot de passe oublié ?</a></p>
+        {% endif %}
     </div>
-    <form id="auth-form" novalidate>
-        <label>Email
-            <input type="email" name="email" autocomplete="email" required>
+
+    <form id="twofa-form" novalidate hidden>
+        <label><span id="twofa-label-text">Code à 6 chiffres de ton application</span>
+            <input name="code" inputmode="numeric" autocomplete="one-time-code" required>
         </label>
-        <label>Mot de passe
-            <input type="password" name="password" minlength="12" autocomplete="current-password" required>
-        </label>
-        <label id="confirm-label" hidden>Confirmer le mot de passe
-            <input type="password" name="password_confirm" minlength="12" autocomplete="new-password">
-        </label>
-        <p class="muted small" id="pwd-hint" hidden>12 caractères minimum.</p>
-        <p class="error" id="auth-error" role="alert"></p>
-        <button class="primary" type="submit" id="auth-submit">Se connecter</button>
+        <p class="small"><button type="button" class="ghost" id="use-recovery">Utiliser un code de récupération</button></p>
+        <p class="error" id="twofa-error" role="alert"></p>
+        <button class="primary" type="submit">Valider</button>
+        <p class="small"><button type="button" class="ghost" id="twofa-cancel">Retour</button></p>
     </form>
 </main>
 {% endblock %}

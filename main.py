@@ -7,6 +7,16 @@ import time
 import json, shutil, zipfile
 import re
 import statistics
+import base64
+import hmac
+import smtplib
+import ssl
+import struct
+import threading
+import segno
+from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
+from urllib.parse import quote
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
@@ -14,11 +24,14 @@ from functools import wraps
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
-from flask import (Flask, abort, g, jsonify, redirect, render_template, request, send_file, session, url_for)
+from flask import (
+    Flask, Response, abort, g, jsonify, redirect, render_template,
+    request, send_file, session, url_for,
+)
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.11.1"
+APP_VERSION = "0.12"
 
 BASE = Path(__file__).parent
 INSTANCE = BASE / "instance"
@@ -60,12 +73,31 @@ app.jinja_env.globals["app_version"] = APP_VERSION
 # ---------- Base de données ----------
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  session_version INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    session_version INTEGER NOT NULL DEFAULT 0,
+    email_verified INTEGER NOT NULL DEFAULT 0,
+    totp_secret TEXT,
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    totp_last_step INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS email_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL CHECK (purpose IN ('verify', 'reset', 'email_change')),
+    token_hash TEXT NOT NULL UNIQUE,
+    new_email TEXT,
+    expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_email_tokens_user ON email_tokens(user_id, purpose);
+CREATE TABLE IF NOT EXISTS recovery_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_recovery_user ON recovery_codes(user_id);
 CREATE TABLE IF NOT EXISTS contracts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -128,6 +160,13 @@ def migrate():
         ucols = {r[1] for r in c.execute("PRAGMA table_info(users)")}
         if "session_version" not in ucols:
             c.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0")
+        for col, ddl in (
+                ("email_verified", "INTEGER NOT NULL DEFAULT 0"),
+                ("totp_secret", "TEXT"),
+                ("totp_enabled", "INTEGER NOT NULL DEFAULT 0"),
+                ("totp_last_step", "INTEGER NOT NULL DEFAULT 0")):
+            if col not in ucols:
+                c.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
         if info["gross_cents"][3] == 1:  # colonne encore NOT NULL -> reconstruction (v0.2)
             c.executescript("""
             BEGIN;
@@ -279,6 +318,189 @@ def check_password(uid, pwd):
     FAILS.pop(key, None)
     return None
 
+# ---------- E-mails, jetons et double authentification ----------
+TOKEN_TTL = {"verify": 48 * 3600, "reset": 3600, "email_change": 24 * 3600}
+TOTP_STEP = 30
+EMAIL_RE = re.compile(r"^[^@\s<>,;\"']+@[^@\s<>,;\"']+\.[^@\s<>,;\"']+$")
+
+
+def valid_email(e):
+    return len(e) <= 254 and bool(EMAIL_RE.match(e))
+
+
+def hit(key, limit, window=WINDOW):
+    """Enregistre une tentative ; True si la limite est dépassée."""
+    now = time.time()
+    if len(FAILS) > 5000:       # évite que le dictionnaire grossisse indéfiniment
+        for k in [k for k, v in FAILS.items() if not v or now - v[-1] > WINDOW]:
+            del FAILS[k]
+    FAILS[key] = [t for t in FAILS.get(key, []) if now - t < window]
+    if len(FAILS[key]) >= limit:
+        return True
+    FAILS[key].append(now)
+    return False
+
+
+def hash_token(raw):
+    return hmac.new(app.config["SECRET_KEY"].encode(), raw.encode(), hashlib.sha256).hexdigest()
+
+
+# --- E-mails ---
+def mail_mode():
+    if os.environ.get("SMTP_HOST") and os.environ.get("APP_BASE_URL"):
+        return "smtp"
+    if os.environ.get("MAIL_CONSOLE") == "1":
+        return "console"
+    return None
+
+
+def mail_enabled():
+    return mail_mode() is not None
+
+
+def base_url():
+    # APP_BASE_URL uniquement : l'en-tête Host peut être falsifié
+    return os.environ.get("APP_BASE_URL", "").rstrip("/") or request.host_url.rstrip("/")
+
+
+def deliver(msg):
+    host = os.environ["SMTP_HOST"]
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    ctx = ssl.create_default_context()
+    try:
+        if os.environ.get("SMTP_SSL") == "1":
+            server = smtplib.SMTP_SSL(host, port, context=ctx, timeout=15)
+        else:
+            server = smtplib.SMTP(host, port, timeout=15)
+            if os.environ.get("SMTP_STARTTLS", "1") == "1":
+                server.starttls(context=ctx)
+        with server:
+            user = os.environ.get("SMTP_USER")
+            if user:
+                server.login(user, os.environ.get("SMTP_PASSWORD", ""))
+            server.send_message(msg)
+    except Exception:
+        app.logger.exception("Échec d'envoi d'e-mail")
+
+
+def send_mail(to, subject, text):
+    if mail_mode() == "console":
+        app.logger.warning("MAIL (console) à %s : %s\n%s", to, subject, text)
+        return
+    msg = EmailMessage()
+    msg["From"] = os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER", "")
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid()
+    msg.set_content(text)
+    threading.Thread(target=deliver, args=(msg,), daemon=True).start()
+
+
+# --- Jetons de lien ---
+def make_token(db, uid, purpose, new_email=None):
+    raw = secrets.token_urlsafe(32)
+    db.execute("DELETE FROM email_tokens WHERE expires_at < ?", (int(time.time()),))
+    db.execute("DELETE FROM email_tokens WHERE user_id=? AND purpose=?", (uid, purpose))
+    db.execute(
+        "INSERT INTO email_tokens(user_id, purpose, token_hash, new_email, expires_at)"
+        " VALUES (?,?,?,?,?)",
+        (uid, purpose, hash_token(raw), new_email, int(time.time()) + TOKEN_TTL[purpose]))
+    db.commit()
+    return raw
+
+
+def consume_token(db, raw, purposes):
+    """Retourne la ligne du jeton s'il est valide, et le supprime (usage unique)."""
+    if not raw or len(raw) > 200:
+        return None
+    marks = ",".join("?" * len(purposes))
+    row = db.execute(
+        f"SELECT * FROM email_tokens WHERE token_hash=? AND purpose IN ({marks})",
+        (hash_token(raw), *purposes)).fetchone()
+    if not row:
+        return None
+    db.execute("DELETE FROM email_tokens WHERE id=?", (row["id"],))
+    db.commit()
+    return row if row["expires_at"] >= time.time() else None
+
+
+def send_verification(uid, email):
+    raw = make_token(get_db(), uid, "verify")
+    send_mail(email, "507h – Confirme ton adresse e-mail",
+              "Bonjour,\n\nConfirme ton adresse e-mail pour 507h en ouvrant ce lien "
+              f"(valable 48 heures) :\n{base_url()}/verify?token={raw}\n\n"
+              "Si tu n'es pas à l'origine de cette demande, ignore ce message.\n")
+
+
+# --- Double authentification (TOTP, RFC 6238) ---
+def totp_at(secret_b32, step):
+    h = hmac.new(base64.b32decode(secret_b32), struct.pack(">Q", step), hashlib.sha1).digest()
+    o = h[-1] & 0x0F
+    return f"{(struct.unpack('>I', h[o:o + 4])[0] & 0x7FFFFFFF) % 1000000:06d}"
+
+
+def check_totp(secret_b32, code, last_step):
+    """Retourne le pas de temps validé, ou None. Refuse un pas déjà utilisé."""
+    code = re.sub(r"\s", "", str(code or ""))
+    if not re.fullmatch(r"\d{6}", code):
+        return None
+    now_step = int(time.time() // TOTP_STEP)
+    for step in (now_step - 1, now_step, now_step + 1):
+        if step > (last_step or 0) and hmac.compare_digest(totp_at(secret_b32, step), code):
+            return step
+    return None
+
+
+def new_recovery_codes(db, uid, n=10):
+    db.execute("DELETE FROM recovery_codes WHERE user_id=?", (uid,))
+    codes = []
+    for _ in range(n):
+        raw = secrets.token_hex(6)
+        codes.append("-".join(raw[i:i + 4] for i in (0, 4, 8)))
+        db.execute("INSERT INTO recovery_codes(user_id, code_hash) VALUES (?,?)",
+                   (uid, hash_token(raw)))
+    return codes
+
+
+def verify_second_factor(db, uid, code):
+    """Retourne 'totp', 'recovery' ou None."""
+    u = db.execute("SELECT totp_secret, totp_last_step FROM users"
+                   " WHERE id=? AND totp_enabled=1", (uid,)).fetchone()
+    if not u:
+        return None
+    raw = str(code or "").strip()
+    try:
+        secret = FERNET.decrypt(u["totp_secret"].encode()).decode()
+    except InvalidToken:
+        app.logger.error("Secret TOTP illisible pour l'utilisateur %s (FILE_KEY modifiée ?)", uid)
+        return None
+    step = check_totp(secret, raw, u["totp_last_step"])
+    if step:
+        db.execute("UPDATE users SET totp_last_step=? WHERE id=?", (step, uid))
+        db.commit()
+        return "totp"
+    cleaned = re.sub(r"[\s-]", "", raw).lower()
+    if re.fullmatch(r"[0-9a-f]{12}", cleaned):
+        cur = db.execute("DELETE FROM recovery_codes WHERE user_id=? AND code_hash=?",
+                         (uid, hash_token(cleaned)))
+        db.commit()
+        if cur.rowcount:
+            return "recovery"
+    return None
+
+
+def second_factor_ok(db, uid, code):
+    """Retourne (type, None) si valide, sinon (None, réponse d'erreur)."""
+    key = f"2fa|{uid}"
+    if too_many(key):
+        return None, err("Trop de tentatives, réessaie dans 15 minutes", 429)
+    kind = verify_second_factor(db, uid, code)
+    if not kind:
+        FAILS.setdefault(key, []).append(time.time())
+        return None, err("Code incorrect", 403)
+    FAILS.pop(key, None)
+    return kind, None
 
 # ---------- Validation ----------
 def err(msg, code=400):
@@ -375,6 +597,14 @@ def account_page():
 
 
 # ---------- API auth ----------
+def finish_login(u):
+    session.clear()
+    session.permanent = True
+    session["uid"] = u["id"]
+    session["sv"] = u["session_version"]
+    csrf_token()
+
+
 @app.post("/api/register")
 def register():
     data = request.get_json(silent=True) or {}
@@ -393,6 +623,8 @@ def register():
         db.commit()
     except sqlite3.IntegrityError:
         return err("Impossible de créer ce compte", 409)
+    if mail_enabled():
+        send_verification(cur.lastrowid, email)
     session.clear()
     session.permanent = True
     session["uid"] = cur.lastrowid
@@ -415,12 +647,32 @@ def login():
         FAILS.setdefault(key, []).append(time.time())
         return err("Identifiants incorrects", 401)
     FAILS.pop(key, None)
-    session.clear()
-    session.permanent = True
-    session["uid"] = u["id"]
-    session["sv"] = u["session_version"]
-    csrf_token()
+    if u["totp_enabled"]:
+        # mot de passe correct : on attend le second facteur, sans ouvrir de session
+        csrf = session.get("csrf")      # conserve le jeton CSRF de la page de connexion
+        session.clear()
+        session["csrf"] = csrf or secrets.token_urlsafe(32)
+        session["pending_uid"] = u["id"]
+        session["pending_at"] = int(time.time())
+        return jsonify(needs_2fa=True)
+    finish_login(u)
     return jsonify(ok=True)
+
+
+@app.post("/api/login/2fa")
+def login_2fa():
+    uid = session.get("pending_uid")
+    if not uid or time.time() - session.get("pending_at", 0) > 300:
+        session.pop("pending_uid", None)
+        session.pop("pending_at", None)
+        return err("Session expirée, recommence la connexion", 401)
+    db = get_db()
+    kind, bad = second_factor_ok(db, uid, (request.get_json(silent=True) or {}).get("code"))
+    if bad:
+        return bad
+    u = db.execute("SELECT id, session_version FROM users WHERE id=?", (uid,)).fetchone()
+    finish_login(u)
+    return jsonify(ok=True, recovery_used=(kind == "recovery"))
 
 
 @app.post("/api/logout")
@@ -590,30 +842,45 @@ def bump_sessions(db, uid):
 @login_required
 def account_info():
     db, uid = get_db(), session["uid"]
-    u = db.execute("SELECT email, created_at FROM users WHERE id=?", (uid,)).fetchone()
+    u = db.execute("SELECT email, created_at, email_verified, totp_enabled FROM users WHERE id=?",
+                   (uid,)).fetchone()
     nc = db.execute("SELECT COUNT(*) FROM contracts WHERE user_id=?", (uid,)).fetchone()[0]
     nd = db.execute("SELECT COUNT(*) FROM documents WHERE user_id=?", (uid,)).fetchone()[0]
-    return jsonify(email=u["email"], created_at=u["created_at"], contracts=nc, documents=nd)
+    left = db.execute("SELECT COUNT(*) FROM recovery_codes WHERE user_id=?", (uid,)).fetchone()[0]
+    return jsonify(email=u["email"], created_at=u["created_at"], contracts=nc, documents=nd,
+                   email_verified=bool(u["email_verified"]), totp_enabled=bool(u["totp_enabled"]),
+                   recovery_left=left, mail_enabled=mail_enabled())
 
 
 @app.post("/api/account/email")
 @login_required
 def change_email():
     d = request.get_json(silent=True) or {}
-    uid = session["uid"]
+    db, uid = get_db(), session["uid"]
     email = str(d.get("email", "")).strip().lower()
     if not valid_email(email):
         return err("Email invalide")
+    if hit(f"emailchg|{uid}", 5):
+        return err("Trop de demandes, réessaie plus tard", 429)
     bad = check_password(uid, str(d.get("password", "")))
     if bad:
         return bad
-    db = get_db()
-    try:
-        db.execute("UPDATE users SET email=? WHERE id=?", (email, uid))
-        db.commit()
-    except sqlite3.IntegrityError:
-        return err("Cette adresse n'est pas disponible", 409)
-    return jsonify(ok=True, email=email)
+    if not mail_enabled():
+        try:
+            db.execute("UPDATE users SET email=? WHERE id=?", (email, uid))
+            db.commit()
+        except sqlite3.IntegrityError:
+            return err("Cette adresse n'est pas disponible", 409)
+        return jsonify(ok=True, message="Adresse e-mail mise à jour.")
+    taken = db.execute("SELECT 1 FROM users WHERE email=? AND id<>?", (email, uid)).fetchone()
+    if not taken:       # même réponse dans tous les cas : pas de fuite sur les adresses existantes
+        raw = make_token(db, uid, "email_change", email)
+        send_mail(email, "507h – Confirme ta nouvelle adresse e-mail",
+                  "Bonjour,\n\nConfirme ta nouvelle adresse e-mail pour 507h en ouvrant ce lien "
+                  f"(valable 24 heures) :\n{base_url()}/verify?token={raw}\n\n"
+                  "Si tu n'es pas à l'origine de cette demande, ignore ce message.\n")
+    return jsonify(ok=True, message="Un lien de confirmation vient d'être envoyé à la nouvelle "
+                                    "adresse. Ton adresse actuelle reste valable jusqu'à sa confirmation.")
 
 
 @app.post("/api/account/password")
@@ -1259,6 +1526,195 @@ def stats_page():
 @login_required
 def get_stats():
     return jsonify(build_stats(get_db(), session["uid"], request.args.get("period", "12m")))
+
+# ---------- Pages publiques liées aux e-mails ----------
+@app.context_processor
+def inject_mail_state():
+    unverified = False
+    uid = session.get("uid")
+    if uid and mail_enabled():
+        r = get_db().execute("SELECT email_verified FROM users WHERE id=?", (uid,)).fetchone()
+        unverified = bool(r) and not r["email_verified"]
+    return {"email_unverified": unverified, "mail_on": mail_enabled()}
+
+
+@app.get("/forgot")
+def forgot_page():
+    return render_template("forgot.html")
+
+
+@app.get("/reset")
+def reset_page():
+    return render_template("reset.html")
+
+
+@app.get("/verify")
+def verify_page():
+    return render_template("confirm.html")
+
+
+# ---------- Vérification de l'adresse e-mail ----------
+@app.post("/api/email/send-verification")
+@login_required
+def resend_verification():
+    if not mail_enabled():
+        return err("L'envoi d'e-mails n'est pas configuré sur ce serveur", 503)
+    db, uid = get_db(), session["uid"]
+    u = db.execute("SELECT email, email_verified FROM users WHERE id=?", (uid,)).fetchone()
+    if u["email_verified"]:
+        return jsonify(ok=True, message="Adresse déjà vérifiée.")
+    if hit(f"verify|{uid}", 3):
+        return err("Trop de demandes, réessaie dans 15 minutes", 429)
+    send_verification(uid, u["email"])
+    return jsonify(ok=True, message="Lien envoyé. Pense à vérifier tes courriers indésirables.")
+
+
+@app.post("/api/email/confirm")
+def confirm_email():
+    db = get_db()
+    row = consume_token(db, str((request.get_json(silent=True) or {}).get("token", "")),
+                        ("verify", "email_change"))
+    if not row:
+        return err("Lien invalide ou expiré")
+    try:
+        if row["purpose"] == "verify":
+            db.execute("UPDATE users SET email_verified=1 WHERE id=?", (row["user_id"],))
+        else:
+            db.execute("UPDATE users SET email=?, email_verified=1 WHERE id=?",
+                       (row["new_email"], row["user_id"]))
+            db.execute("DELETE FROM email_tokens WHERE user_id=? AND purpose='verify'",
+                       (row["user_id"],))
+        db.commit()
+    except sqlite3.IntegrityError:
+        return err("Cette adresse est déjà utilisée par un autre compte", 409)
+    return jsonify(ok=True, kind=row["purpose"])
+
+
+# ---------- Mot de passe oublié ----------
+@app.post("/api/password/forgot")
+def forgot_password():
+    if not mail_enabled():
+        return err("L'envoi d'e-mails n'est pas configuré sur ce serveur", 503)
+    email = str((request.get_json(silent=True) or {}).get("email", "")).strip().lower()
+    if hit(f"forgot-ip|{request.remote_addr}", 10) or hit(f"forgot|{email}", 3):
+        return err("Trop de demandes, réessaie dans 15 minutes", 429)
+    if valid_email(email):
+        db = get_db()
+        u = db.execute("SELECT id FROM users WHERE email=? AND email_verified=1", (email,)).fetchone()
+        if u:
+            raw = make_token(db, u["id"], "reset")
+            send_mail(email, "507h – Réinitialisation du mot de passe",
+                      "Bonjour,\n\nPour choisir un nouveau mot de passe, ouvre ce lien "
+                      f"(valable 1 heure) :\n{base_url()}/reset?token={raw}\n\n"
+                      "Si tu n'es pas à l'origine de cette demande, ignore ce message : "
+                      "ton mot de passe ne changera pas.\n")
+    return jsonify(ok=True, message="Si un compte vérifié existe pour cette adresse, "
+                                    "un e-mail vient d'être envoyé.")
+
+
+@app.post("/api/password/reset")
+def reset_password():
+    d = request.get_json(silent=True) or {}
+    pwd = str(d.get("password", ""))
+    if not (12 <= len(pwd) <= 200):
+        return err("Mot de passe : 12 caractères minimum")
+    if pwd != str(d.get("password_confirm", "")):
+        return err("Les mots de passe ne correspondent pas")
+    db = get_db()
+    row = consume_token(db, str(d.get("token", "")), ("reset",))
+    if not row:
+        return err("Lien invalide ou expiré")
+    db.execute("UPDATE users SET password_hash=?, session_version=session_version+1 WHERE id=?",
+               (generate_password_hash(pwd), row["user_id"]))
+    db.commit()
+    session.clear()
+    return jsonify(ok=True)
+
+
+# ---------- Double authentification ----------
+@app.post("/api/2fa/setup")
+@login_required
+def twofa_setup():
+    db, uid = get_db(), session["uid"]
+    bad = check_password(uid, str((request.get_json(silent=True) or {}).get("password", "")))
+    if bad:
+        return bad
+    if db.execute("SELECT totp_enabled FROM users WHERE id=?", (uid,)).fetchone()[0]:
+        return err("La double authentification est déjà activée")
+    secret = base64.b32encode(secrets.token_bytes(20)).decode()
+    db.execute("UPDATE users SET totp_secret=?, totp_enabled=0, totp_last_step=0 WHERE id=?",
+               (FERNET.encrypt(secret.encode()).decode(), uid))
+    db.commit()
+    return jsonify(secret=secret)
+
+
+@app.get("/api/2fa/qr.svg")
+@login_required
+def twofa_qr():
+    u = get_db().execute("SELECT email, totp_secret, totp_enabled FROM users WHERE id=?",
+                         (session["uid"],)).fetchone()
+    if not u or not u["totp_secret"] or u["totp_enabled"]:
+        abort(404)
+    secret = FERNET.decrypt(u["totp_secret"].encode()).decode()
+    label = quote(f"507h:{u['email']}", safe="@:")
+    uri = f"otpauth://totp/{label}?secret={secret}&issuer=507h&algorithm=SHA1&digits=6&period=30"
+    buf = io.BytesIO()
+    segno.make(uri, error="m").save(buf, kind="svg", scale=6, border=2,
+                                    dark="#000000", light="#ffffff")
+    return Response(buf.getvalue(), mimetype="image/svg+xml")
+
+
+@app.post("/api/2fa/enable")
+@login_required
+def twofa_enable():
+    db, uid = get_db(), session["uid"]
+    if hit(f"2fa-setup|{uid}", 10):
+        return err("Trop de tentatives, réessaie dans 15 minutes", 429)
+    u = db.execute("SELECT totp_secret, totp_enabled FROM users WHERE id=?", (uid,)).fetchone()
+    if not u["totp_secret"] or u["totp_enabled"]:
+        return err("Lance d'abord la configuration")
+    secret = FERNET.decrypt(u["totp_secret"].encode()).decode()
+    step = check_totp(secret, (request.get_json(silent=True) or {}).get("code"), 0)
+    if not step:
+        return err("Code incorrect")
+    codes = new_recovery_codes(db, uid)
+    db.execute("UPDATE users SET totp_enabled=1, totp_last_step=? WHERE id=?", (step, uid))
+    db.commit()
+    bump_sessions(db, uid)      # déconnecte les autres appareils, garde celui-ci
+    return jsonify(recovery_codes=codes)
+
+
+@app.post("/api/2fa/disable")
+@login_required
+def twofa_disable():
+    db, uid = get_db(), session["uid"]
+    d = request.get_json(silent=True) or {}
+    bad = check_password(uid, str(d.get("password", "")))
+    if bad:
+        return bad
+    _, bad = second_factor_ok(db, uid, d.get("code"))
+    if bad:
+        return bad
+    db.execute("UPDATE users SET totp_secret=NULL, totp_enabled=0, totp_last_step=0 WHERE id=?", (uid,))
+    db.execute("DELETE FROM recovery_codes WHERE user_id=?", (uid,))
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/2fa/recovery")
+@login_required
+def twofa_recovery():
+    db, uid = get_db(), session["uid"]
+    d = request.get_json(silent=True) or {}
+    bad = check_password(uid, str(d.get("password", "")))
+    if bad:
+        return bad
+    _, bad = second_factor_ok(db, uid, d.get("code"))
+    if bad:
+        return bad
+    codes = new_recovery_codes(db, uid)
+    db.commit()
+    return jsonify(recovery_codes=codes)
 
 if __name__ == "__main__":
     app.run(debug=os.environ.get("DEV") == "1", port=5007)
