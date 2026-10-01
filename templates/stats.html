@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Statistiques – 507h{% endblock %}
+{% block body %}
+<header class="topbar">
+    <h1>507<span>h</span></h1>
+    <nav class="row">
+        <a class="ghost btn" href="/">Mes contrats</a>
+        <a class="ghost btn" href="/intermittence">Intermittence</a>
+        <a class="ghost btn" href="/account">Mon compte</a>
+        <button id="logout" class="ghost">Déconnexion</button>
+    </nav>
+</header>
+<main class="container">
+    <section class="card">
+        <div class="card-head">
+            <h2>Statistiques</h2>
+            <label class="inline-label">Période
+                <select id="period">
+                    <option value="12m">12 derniers mois</option>
+                    <option value="year">Année en cours</option>
+                    <option value="prev_year">Année précédente</option>
+                    <option value="right">Depuis le début du droit en cours</option>
+                    <option value="all">Depuis le début</option>
+                </select></label>
+        </div>
+        <p class="muted small" id="stats-note"></p>
+    </section>
+
+    <div class="cols-2">
+        <section class="card"><h2>Heures</h2><ul class="kv" id="hours-kpi"></ul></section>
+        <section class="card"><h2>Revenus (salaires nets + ARE)</h2>
+            <div class="table-wrap"><table>
+                <thead><tr><th></th><th>Meilleur mois</th><th class="num">Moyenne</th><th class="num">Médiane</th></tr></thead>
+                <tbody id="income-rows"></tbody></table></div>
+        </section>
+        <section class="card"><h2>Heures par mois</h2><div class="chart" id="chart-hours"></div></section>
+        <section class="card"><h2>Revenu net par mois</h2><div class="chart" id="chart-income"></div></section>
+        <section class="card"><h2>Heures par droit</h2><div class="chart" id="chart-rights"></div></section>
+        <section class="card">
+            <div class="card-head"><h2>Dépendance aux employeurs</h2>
+                <select id="dep-mode" class="auto"><option value="hours">Heures</option><option value="net">Salaires nets</option></select></div>
+            <div class="chart" id="chart-dep"></div>
+        </section>
+    </div>
+
+    <section class="card">
+        <div class="card-head">
+            <h2>Calendrier d'activité</h2>
+            <div class="row">
+                <button class="ghost" id="cal-prev" type="button" aria-label="Année précédente">◀</button>
+                <strong id="cal-year"></strong>
+                <button class="ghost" id="cal-next" type="button" aria-label="Année suivante">▶</button>
+            </div>
+        </div>
+        <div class="legend">
+            <span><i class="sw c2"></i>Jour couvert par un contrat</span>
+            <span><b class="lg pay">€</b> Virement France Travail</span>
+            <span><b class="lg anniv">★</b> Date anniversaire</span>
+            <span><b class="lg start">▶</b> Début d'indemnisation</span>
+            <span><b class="lg fct">◼</b> Fin de contrat retenue</span>
+            <span><b class="lg end">✕</b> Fin effective (réexamen anticipé)</span>
+        </div>
+        <div class="cal-wrap"><div class="cal" id="cal"></div></div>
+    </section>
+</main>
+<footer class="footer muted small">507h v{{ app_version }}</footer>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/stats.js') }}"></script>
+{% endblock %}

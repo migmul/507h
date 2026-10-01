@@ -3,6 +3,27 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.8] - 2026-10-01
+
+### Ajouté
+- Page « Statistiques » (`/stats`) avec sélecteur de période : 12 derniers mois, année en cours, année précédente, depuis le début du droit en cours, depuis le début.
+- Heures par mois (histogramme).
+- Heures par droit : heures de référence (12 mois avant la FCT) et heures travaillées pendant le droit, avec repère des 507 h.
+- Heures moyennes par semaine, moyenne et médiane mensuelles, meilleur mois.
+- Revenu net par mois en barres empilées : salaires nets (contrats) et ARE (virements France Travail, rattachés au mois concerné).
+- Meilleur mois, moyenne et médiane pour les salaires, l'ARE et le revenu total.
+- Dépendance aux employeurs : graphique en anneau par heures ou par salaires nets, avec regroupement des petits employeurs en « Autres ».
+- Calendrier d'activité annuel : jours couverts par un contrat, virements France Travail, fin de contrat retenue (FCT), début d'indemnisation, date anniversaire et fin effective d'un droit. Détail au survol.
+- Lien « Statistiques » dans la navigation.
+- Graphiques en SVG, sans bibliothèque externe.
+
+### Modifié
+- Les pages Intermittence et Mon compte s'affichent sur deux colonnes (une seule colonne sur petit écran).
+- Largeur maximale du contenu portée à 1 200 px.
+
+### Corrigé
+- Page Intermittence : le contenu était décalé vers la droite à cause du tableau de l'historique, qui élargissait la grille. Les tableaux défilent désormais dans leur carte.
+
 ## [0.7] - 2026-10-01
 
 ### Ajouté
@@ -127,6 +148,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## Connu / à faire
 - Le calcul des 507 h n'applique pas les plafonds mensuels d'heures (208 h / 250 h pour l'annexe 8) et ne gère ni les cachets (annexe 10) ni les heures assimilées.
+- Les statistiques répartissent heures et salaires au prorata des jours de chaque contrat : ce ne sont pas les jours réellement travaillés.
 - L'import JSON ne restaure pas les documents PDF (ils restent dans l'archive ZIP d'export).
 - Les virements sont saisis à la main : aucun calcul automatique du montant mensuel.
 - Pas de récupération de mot de passe (nécessite l'envoi d'e-mails) ni de vérification de l'adresse e-mail.

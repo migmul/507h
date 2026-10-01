@@ -86,3 +86,37 @@ select { width:100%; padding:.6rem; margin-top:.25rem; background:var(--bg); col
          border:1px solid var(--border); border-radius:8px; font:inherit; }
 .current-row td { background: rgba(255, 90, 54, .07); }
 td.comment { white-space: normal; max-width: 260px; }
+.container { max-width: 1200px; }
+.container > *, .col > * { min-width: 0; }
+.cols-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
+.col { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+@media (max-width: 900px) { .cols-2 { grid-template-columns: minmax(0, 1fr); } }
+
+.inline-label { display: flex; align-items: center; gap: .5rem; margin: 0; }
+.inline-label select, select.auto { width: auto; margin: 0; }
+
+.chart svg { width: 100%; height: auto; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: .4rem 1rem; font-size: .85rem; color: var(--muted); margin: .5rem 0; }
+.sw { display: inline-block; width: .7rem; height: .7rem; border-radius: 2px; margin-right: .35rem; }
+.donut-wrap { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; }
+.donut-wrap svg { width: 220px; flex: none; }
+.donut-wrap ul { list-style: none; padding: 0; margin: 0; flex: 1; min-width: 180px; }
+.donut-wrap li { display: flex; justify-content: space-between; gap: .75rem; padding: .2rem 0; font-size: .9rem; }
+
+.cal-wrap { overflow-x: auto; }
+.cal { display: grid; grid-template-columns: 76px repeat(31, 26px); gap: 2px; min-width: max-content; font-size: .65rem; }
+.cal .ml { color: var(--muted); align-self: center; font-size: .8rem; text-transform: capitalize; }
+.cd { position: relative; height: 24px; border-radius: 4px; background: var(--bg); color: var(--muted); padding: 1px 3px; }
+.cd.we { background: #14171d; }
+.cd.off { visibility: hidden; }
+.cd.c1 { background: #7a2c1c; color: #fff; }
+.cd.c2 { background: var(--accent); color: #fff; }
+.cd.today { outline: 1px solid #fff; }
+.cd[class*="m-"]::after { position: absolute; right: 2px; bottom: 0; font-size: .75rem; font-weight: 700; }
+.m-pay::after, .lg.pay { content: '€'; color: #5ad19a; }
+.m-fct::after { content: '◼'; color: #4cc9f0; }
+.m-start::after { content: '▶'; color: #4cc9f0; }
+.m-anniv::after { content: '★'; color: #f5b942; }
+.m-end::after { content: '✕'; color: #ff6b6b; }
+.lg.anniv { color: #f5b942; } .lg.start, .lg.fct { color: #4cc9f0; } .lg.end { color: #ff6b6b; }
+.sw.c2 { background: var(--accent); }

@@ -6,6 +6,8 @@ import sqlite3
 import time
 import json, shutil, zipfile
 import re
+import statistics
+from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
@@ -16,7 +18,7 @@ from flask import (Flask, abort, g, jsonify, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.7"
+APP_VERSION = "0.8"
 
 BASE = Path(__file__).parent
 INSTANCE = BASE / "instance"
@@ -1073,6 +1075,169 @@ def delete_payment(pid):
     cur = db.execute("DELETE FROM payments WHERE id=? AND user_id=?", (pid, session["uid"]))
     db.commit()
     return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
+
+# ---------- Statistiques ----------
+PERIODS = {"12m": "12 derniers mois", "year": "Année en cours", "prev_year": "Année précédente",
+           "right": "Depuis le début du droit en cours", "all": "Depuis le début"}
+
+
+def add_months(d, n):
+    m = d.year * 12 + d.month - 1 + n
+    return date(m // 12, m % 12 + 1, 1)
+
+
+def month_list(first, last):
+    out, d = [], first
+    while d <= last:
+        out.append(d.strftime("%Y-%m"))
+        d = add_months(d, 1)
+    return out
+
+
+def spread(s, e, value, until=None):
+    """Répartit une valeur au prorata des jours du contrat, par mois, jusqu'à `until`."""
+    total = (e - s).days + 1
+    out = defaultdict(float)
+    d = s
+    while d <= e:
+        if until is not None and d > until:
+            break
+        nxt = add_months(d, 1)
+        seg_end = min(e, nxt - timedelta(days=1))
+        if until is not None:
+            seg_end = min(seg_end, until)
+        out[d.strftime("%Y-%m")] += value * ((seg_end - d).days + 1) / total
+        d = nxt
+    return out
+
+
+def summarize(items):
+    if not items:
+        return None
+    best = max(items, key=lambda x: x[1])
+    vals = [v for _, v in items]
+    return {"best_month": best[0], "best": round(best[1], 2),
+            "mean": round(statistics.fmean(vals), 2),
+            "median": round(statistics.median(vals), 2), "months": len(vals)}
+
+
+def period_bounds(db, uid, key, today):
+    cur = today.replace(day=1)
+    if key == "year":
+        return date(today.year, 1, 1), cur
+    if key == "prev_year":
+        return date(today.year - 1, 1, 1), date(today.year - 1, 12, 1)
+    if key == "right":
+        r = current_right(db, uid)
+        if r:
+            return min(date.fromisoformat(r["start_date"]).replace(day=1), cur), cur
+    if key == "all":
+        c = db.execute("SELECT MIN(start_date) FROM contracts WHERE user_id=?", (uid,)).fetchone()[0]
+        p = db.execute("SELECT MIN(month_covered) FROM payments WHERE user_id=?", (uid,)).fetchone()[0]
+        cands = []
+        if c:
+            cands.append(date.fromisoformat(c).replace(day=1))
+        if p:
+            cands.append(date.fromisoformat(p + "-01"))
+        if cands:
+            return min(min(cands), cur), cur
+    return add_months(cur, -11), cur
+
+
+def build_stats(db, uid, key):
+    if key not in PERIODS:
+        key = "12m"
+    today = date.today()
+    first, last = period_bounds(db, uid, key, today)
+    months = month_list(first, last)
+    mset, cur_key = set(months), today.strftime("%Y-%m")
+    range_end = add_months(last, 1) - timedelta(days=1)
+
+    hours, salary, are = defaultdict(float), defaultdict(float), defaultdict(float)
+    emp, no_net = {}, 0
+    rows = db.execute(
+        "SELECT employer, hours, start_date, end_date, net_cents FROM contracts"
+        " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
+        (uid, first.isoformat(), range_end.isoformat()))
+    for r in rows:
+        s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
+        h_in = {m: v for m, v in spread(s, e, r["hours"], today).items() if m in mset}
+        if not h_in:
+            continue
+        d = emp.setdefault(" ".join(r["employer"].lower().split()),
+                           {"name": r["employer"], "hours": 0.0, "net": 0.0, "contracts": 0})
+        d["contracts"] += 1
+        for m, v in h_in.items():
+            hours[m] += v
+            d["hours"] += v
+        if r["net_cents"] is None:
+            no_net += 1
+        else:
+            for m, v in spread(s, e, r["net_cents"] / 100, today).items():
+                if m in mset:
+                    salary[m] += v
+                    d["net"] += v
+    for p in db.execute("SELECT month_covered, amount_cents FROM payments WHERE user_id=?", (uid,)):
+        if p["month_covered"] in mset:
+            are[p["month_covered"]] += p["amount_cents"] / 100
+
+    series = [{"month": m, "hours": round(hours[m], 1), "salary": round(salary[m], 2),
+               "are": round(are[m], 2), "total": round(salary[m] + are[m], 2),
+               "complete": m < cur_key} for m in months]
+    done = [x for x in series if x["complete"]]     # le mois en cours est exclu des moyennes
+    end_day = min(today, range_end)
+    days = (end_day - first).days + 1
+    total_hours = sum(x["hours"] for x in series)
+
+    hist = rights_history(db, uid)
+    rights = []
+    for r in reversed(hist):
+        during = period_totals(db, uid, date.fromisoformat(r["start_date"]),
+                               min(date.fromisoformat(r["end_date"]), today))
+        rights.append({"id": r["id"], "start_date": r["start_date"],
+                       "opening_type": r["opening_type"], "ended_early": r["ended_early"],
+                       "ref_hours": r["ref_hours"], "during_hours": during["hours"]})
+
+    events = {
+        "contracts": [{"s": r["start_date"], "e": r["end_date"], "h": r["hours"],
+                       "emp": r["employer"], "mission": r["mission"]}
+                      for r in db.execute("SELECT employer, mission, hours, start_date, end_date"
+                                          " FROM contracts WHERE user_id=?", (uid,))],
+        "payments": [{"d": p["paid_on"], "a": p["amount"], "m": p["month_covered"]}
+                     for p in payments_list(db, uid)],
+        "rights": []}
+    for r in hist:
+        events["rights"] += [{"kind": "fct", "d": r["fct_date"]},
+                             {"kind": "start", "d": r["start_date"]},
+                             {"kind": "anniv", "d": r["anniversary_date"], "early": r["ended_early"]}]
+        if r["ended_early"]:
+            events["rights"].append({"kind": "end", "d": r["end_date"]})
+
+    return {
+        "period": {"key": key, "label": PERIODS[key], "first": first.isoformat(),
+                   "last": range_end.isoformat()},
+        "series": series,
+        "hours_total": round(total_hours, 1),
+        "hours_per_week": round(total_hours / (days / 7), 1) if days > 0 else None,
+        "hours_stats": summarize([(x["month"], x["hours"]) for x in done]),
+        "income": {k: summarize([(x["month"], x[k]) for x in done])
+                   for k in ("salary", "are", "total")},
+        "employers": sorted(({**v, "hours": round(v["hours"], 1), "net": round(v["net"], 2)}
+                             for v in emp.values()), key=lambda v: -v["hours"]),
+        "rights": rights, "no_net": no_net, "events": events,
+    }
+
+
+@app.get("/stats")
+@login_required
+def stats_page():
+    return render_template("stats.html")
+
+
+@app.get("/api/stats")
+@login_required
+def get_stats():
+    return jsonify(build_stats(get_db(), session["uid"], request.args.get("period", "12m")))
 
 if __name__ == "__main__":
     app.run(debug=os.environ.get("DEV") == "1", port=5007)

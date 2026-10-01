@@ -2,107 +2,109 @@
 {% block title %}Intermittence – 507h{% endblock %}
 {% block body %}
 <header class="topbar">
-  <h1>507<span>h</span></h1>
-  <nav class="row">
-    <a class="ghost btn" href="/">Mes contrats</a>
-    <a class="ghost btn" href="/account">Mon compte</a>
-    <button id="logout" class="ghost">Déconnexion</button>
-  </nav>
+    <h1>507<span>h</span></h1>
+    <nav class="row">
+        <a class="ghost btn" href="/">Mes contrats</a>
+        <a class="ghost btn" href="/stats">Statistiques</a>
+        <a class="ghost btn" href="/account">Mon compte</a>
+        <button id="logout" class="ghost">Déconnexion</button>
+    </nav>
 </header>
 <main class="container">
-  <section class="card" id="current" hidden>
-    <div class="card-head"><h2>Droit en cours</h2>
-      <button class="ghost" id="edit-current" type="button">Modifier</button></div>
-    <p class="big" id="da-date"></p>
-    <p class="badge" id="da-status"></p>
-    <div class="progress"><div id="elapsed-bar"></div></div>
-    <ul class="kv" id="current-detail"></ul>
-  </section>
+    <div class="cols-2">
+        <section class="card" id="current" hidden>
+            <div class="card-head"><h2>Droit en cours</h2>
+            <button class="ghost" id="edit-current" type="button">Modifier</button></div>
+            <p class="big" id="da-date"></p>
+            <p class="badge" id="da-status"></p>
+            <div class="progress"><div id="elapsed-bar"></div></div>
+            <ul class="kv" id="current-detail"></ul>
+        </section>
 
-  <section class="card" id="hours-card" hidden>
-    <h2>Vers le prochain examen (507 h)</h2>
-    <div class="progress"><div id="proj-bar"></div></div>
-    <p><strong id="proj-hours">0</strong> / 507 h <span class="muted" id="proj-msg"></span></p>
-    <p class="badge active" id="early-msg" hidden>507 h réalisées : tu peux demander un réexamen anticipé avant ta date anniversaire.</p>
-    <ul class="kv" id="proj-detail"></ul>
-  </section>
-
-  <section class="card">
-    <div class="card-head"><h2>Historique des droits</h2>
-      <button class="primary inline" id="add-right" type="button">+ Ajouter un droit</button></div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Début</th><th>FCT</th><th>Date anniversaire</th><th>Fin effective</th>
-          <th>Ouverture</th><th>Annexe</th><th class="num">AJ nette</th><th class="num">Heures réf.</th><th></th></tr></thead>
-        <tbody id="rights-rows"></tbody>
-      </table>
+        <section class="card" id="hours-card" hidden>
+            <h2>Vers le prochain examen (507 h)</h2>
+            <div class="progress"><div id="proj-bar"></div></div>
+            <p><strong id="proj-hours">0</strong> / 507 h <span class="muted" id="proj-msg"></span></p>
+            <p class="badge active" id="early-msg" hidden>507 h réalisées : tu peux demander un réexamen anticipé avant ta date anniversaire.</p>
+            <ul class="kv" id="proj-detail"></ul>
+        </section>
     </div>
-    <p class="muted" id="rights-empty" hidden>Aucun droit renseigné. Ajoute le droit en cours pour activer le suivi.</p>
-    <p class="muted small">« Heures réf. » = heures de tes contrats sur les 12 mois précédant la FCT. La fin effective est la veille du droit suivant si celui-ci a été ouvert avant la date anniversaire.</p>
-  </section>
+    <section class="card">
+        <div class="card-head"><h2>Historique des droits</h2>
+            <button class="primary inline" id="add-right" type="button">+ Ajouter un droit</button></div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Début</th><th>FCT</th><th>Date anniversaire</th><th>Fin effective</th>
+                    <th>Ouverture</th><th>Annexe</th><th class="num">AJ nette</th><th class="num">Heures réf.</th><th></th></tr></thead>
+                <tbody id="rights-rows"></tbody>
+            </table>
+        </div>
+        <p class="muted" id="rights-empty" hidden>Aucun droit renseigné. Ajoute le droit en cours pour activer le suivi.</p>
+        <p class="muted small">« Heures réf. » = heures de tes contrats sur les 12 mois précédant la FCT. La fin effective est la veille du droit suivant si celui-ci a été ouvert avant la date anniversaire.</p>
+    </section>
 
-  <section class="card">
-    <div class="card-head"><h2>Virements France Travail</h2>
-      <button class="primary inline" id="add-payment" type="button">+ Ajouter un virement</button></div>
-    <p class="muted" id="totals"></p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Date</th><th>Mois concerné</th><th class="num">Jours</th><th class="num">Montant</th><th>Note</th><th></th></tr></thead>
-        <tbody id="pay-rows"></tbody>
-      </table>
-    </div>
-    <p class="muted" id="pay-empty" hidden>Aucun virement saisi.</p>
-  </section>
+    <section class="card">
+        <div class="card-head"><h2>Virements France Travail</h2>
+            <button class="primary inline" id="add-payment" type="button">+ Ajouter un virement</button></div>
+        <p class="muted" id="totals"></p>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Date</th><th>Mois concerné</th><th class="num">Jours</th><th class="num">Montant</th><th>Note</th><th></th></tr></thead>
+                <tbody id="pay-rows"></tbody>
+            </table>
+        </div>
+        <p class="muted" id="pay-empty" hidden>Aucun virement saisi.</p>
+    </section>
 
-  <p class="muted small">Les montants affichés sont ceux que tu saisis. Les cachets, heures assimilées et plafonds mensuels d'heures ne sont pas pris en compte dans le décompte des heures.</p>
+    <p class="muted small">Les montants affichés sont ceux que tu saisis. Les cachets, heures assimilées et plafonds mensuels d'heures ne sont pas pris en compte dans le décompte des heures.</p>
 </main>
 
 <dialog id="right-dialog">
-  <form id="right-form" novalidate>
-    <div class="card-head"><h2 id="right-title">Droit ARE</h2>
-      <button type="button" class="ghost" data-close aria-label="Fermer">✕</button></div>
-    <input type="hidden" name="id">
-    <label>Annexe
-      <select name="annexe">
-        <option value="8">Annexe 8 – ouvriers et techniciens</option>
-        <option value="10">Annexe 10 – artistes</option>
-      </select></label>
-    <label>Type d'ouverture
-      <select name="opening_type">
-        <option value="first">Première ouverture</option>
-        <option value="renewal" selected>Renouvellement à la date anniversaire</option>
-        <option value="anticipated">Demande anticipée</option>
-      </select></label>
-    <label>Fin de contrat retenue (FCT) <input type="date" name="fct_date" required></label>
-    <label>Début d'indemnisation (optionnel, sinon lendemain de la FCT) <input type="date" name="start_date"></label>
-    <label>Date anniversaire (optionnel, sinon FCT + 12 mois) <input type="date" name="anniversary_date"></label>
-    <label>AJ nette de la notification, € (optionnel) <input type="number" name="aj_net" step="0.01" min="0"></label>
-    <label class="full">Note (optionnel) <input name="note" maxlength="200"></label>
-    <p class="error full" role="alert" data-error></p>
-    <div class="row full">
-      <button class="primary inline" type="submit">Enregistrer</button>
-      <button class="ghost" type="button" data-close>Annuler</button>
-    </div>
-  </form>
+    <form id="right-form" novalidate>
+        <div class="card-head"><h2 id="right-title">Droit ARE</h2>
+            <button type="button" class="ghost" data-close aria-label="Fermer">✕</button></div>
+        <input type="hidden" name="id">
+        <label>Annexe
+            <select name="annexe">
+                <option value="8">Annexe 8 – ouvriers et techniciens</option>
+                <option value="10">Annexe 10 – artistes</option>
+            </select></label>
+        <label>Type d'ouverture
+            <select name="opening_type">
+                <option value="first">Première ouverture</option>
+                <option value="renewal" selected>Renouvellement à la date anniversaire</option>
+                <option value="anticipated">Demande anticipée</option>
+            </select></label>
+        <label>Fin de contrat retenue (FCT) <input type="date" name="fct_date" required></label>
+        <label>Début d'indemnisation (optionnel, sinon lendemain de la FCT) <input type="date" name="start_date"></label>
+        <label>Date anniversaire (optionnel, sinon FCT + 12 mois) <input type="date" name="anniversary_date"></label>
+        <label>AJ nette de la notification, € (optionnel) <input type="number" name="aj_net" step="0.01" min="0"></label>
+        <label class="full">Note (optionnel) <input name="note" maxlength="200"></label>
+        <p class="error full" role="alert" data-error></p>
+        <div class="row full">
+            <button class="primary inline" type="submit">Enregistrer</button>
+            <button class="ghost" type="button" data-close>Annuler</button>
+        </div>
+    </form>
 </dialog>
 
 <dialog id="payment-dialog">
-  <form id="payment-form" novalidate>
-    <div class="card-head"><h2 id="payment-title">Virement</h2>
-      <button type="button" class="ghost" data-close aria-label="Fermer">✕</button></div>
-    <input type="hidden" name="id">
-    <label>Date du virement <input type="date" name="paid_on" required></label>
-    <label>Montant viré, € <input type="number" name="amount" step="0.01" min="0.01" required></label>
-    <label>Mois concerné (optionnel, sinon mois précédent)
-      <input name="month_covered" placeholder="2026-08" pattern="\d{4}-\d{2}" maxlength="7"></label>
-    <label>Jours indemnisés (optionnel) <input type="number" name="days_paid" min="0" max="31"></label>
-    <label class="full">Note (optionnel) <input name="note" maxlength="200"></label>
-    <p class="error full" role="alert" data-error></p>
-    <div class="row full">
-      <button class="primary inline" type="submit">Enregistrer</button>
-      <button class="ghost" type="button" data-close>Annuler</button>
-    </div>
-  </form>
+    <form id="payment-form" novalidate>
+        <div class="card-head"><h2 id="payment-title">Virement</h2>
+            <button type="button" class="ghost" data-close aria-label="Fermer">✕</button></div>
+        <input type="hidden" name="id">
+        <label>Date du virement <input type="date" name="paid_on" required></label>
+        <label>Montant viré, € <input type="number" name="amount" step="0.01" min="0.01" required></label>
+        <label>Mois concerné (optionnel, sinon mois précédent)
+            <input name="month_covered" placeholder="2026-08" pattern="\d{4}-\d{2}" maxlength="7"></label>
+        <label>Jours indemnisés (optionnel) <input type="number" name="days_paid" min="0" max="31"></label>
+        <label class="full">Note (optionnel) <input name="note" maxlength="200"></label>
+        <p class="error full" role="alert" data-error></p>
+        <div class="row full">
+            <button class="primary inline" type="submit">Enregistrer</button>
+            <button class="ghost" type="button" data-close>Annuler</button>
+        </div>
+    </form>
 </dialog>
 <footer class="footer muted small">507h v{{ app_version }}</footer>
 {% endblock %}
