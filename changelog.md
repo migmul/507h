@@ -3,6 +3,29 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.7] - 2026-10-01
+
+### Ajouté
+- Historique des droits ARE : plusieurs droits par utilisateur, chacun avec son annexe, sa fin de contrat (FCT), son début d'indemnisation, sa date anniversaire (calculée ou saisie), son AJ nette et une note.
+- Type d'ouverture d'un droit : première ouverture, renouvellement à la date anniversaire ou demande anticipée.
+- Fin effective d'un droit : un droit remplacé avant sa date anniversaire (réexamen anticipé) s'arrête la veille du début du droit suivant. La date anniversaire n'est plus déduite de celle du droit précédent.
+- Heures de la période de référence affichées pour chaque droit.
+- Message « réexamen anticipé possible » dès 507 h réalisées depuis la FCT du droit en cours, avant la date anniversaire.
+- Suivi des virements France Travail saisis à la main : date du virement, montant, mois concerné (par défaut le mois précédant le virement), jours indemnisés (optionnel) et note.
+- Totaux des virements : 12 derniers mois et depuis le début du droit en cours.
+- Export et import : les droits (`droits_are`) et les virements (`virements`) sont inclus. Les anciens fichiers contenant `droit_are` restent importables.
+- Nouvelles tables `rights` et `payments` (supprimées avec le compte).
+
+### Modifié
+- Page Intermittence refondue en quatre blocs : droit en cours, progression vers les 507 h, historique des droits, virements.
+- Le droit en cours est le droit dont le début d'indemnisation est le plus récent ; le tableau de bord s'appuie sur lui.
+- Migration automatique : l'ancienne table `are_rights` est copiée dans `rights` puis renommée `are_rights_old` (elle peut être supprimée manuellement après vérification).
+- API : `PUT/DELETE /api/intermittence` sont remplacés par `/api/rights` et `/api/payments`.
+- Import JSON : les droits et virements déjà présents sont ignorés comme doublons (au lieu d'ignorer tout le droit ARE si un droit existait).
+
+### Supprimé
+- Cartes « Allocation journalière » et « Période d'indemnisation » (fusionnées dans le bloc du droit en cours).
+
 ## [0.6] - 2026-09-30
 
 ### Ajouté
@@ -105,6 +128,6 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 ## Connu / à faire
 - Le calcul des 507 h n'applique pas les plafonds mensuels d'heures (208 h / 250 h pour l'annexe 8) et ne gère ni les cachets (annexe 10) ni les heures assimilées.
 - L'import JSON ne restaure pas les documents PDF (ils restent dans l'archive ZIP d'export).
-- Simulation mensuelle de l'ARE (jours non indemnisables, cumul avec salaires plafonné à 118 % du PMSS) et historique des droits : prévus pour une prochaine version.
+- Les virements sont saisis à la main : aucun calcul automatique du montant mensuel.
 - Pas de récupération de mot de passe (nécessite l'envoi d'e-mails) ni de vérification de l'adresse e-mail.
 - Limitation de tentatives en mémoire (1 seul worker gunicorn).

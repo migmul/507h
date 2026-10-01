@@ -5,6 +5,7 @@ import secrets
 import sqlite3
 import time
 import json, shutil, zipfile
+import re
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
@@ -15,7 +16,7 @@ from flask import (Flask, abort, g, jsonify, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.6"
+APP_VERSION = "0.7"
 
 BASE = Path(__file__).parent
 INSTANCE = BASE / "instance"
@@ -89,15 +90,30 @@ CREATE TABLE IF NOT EXISTS documents (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_documents_contract ON documents(contract_id);
-CREATE TABLE IF NOT EXISTS are_rights (
-  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS rights (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   annexe INTEGER NOT NULL CHECK (annexe IN (8, 10)),
+  opening_type TEXT NOT NULL DEFAULT 'renewal' CHECK (opening_type IN ('first','renewal','anticipated')),
   fct_date TEXT NOT NULL,
   start_date TEXT NOT NULL,
   anniversary_date TEXT,
   aj_net_cents INTEGER CHECK (aj_net_cents IS NULL OR aj_net_cents > 0),
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_rights_user ON rights(user_id, start_date);
+CREATE TABLE IF NOT EXISTS payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  paid_on TEXT NOT NULL,
+  month_covered TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  days_paid INTEGER CHECK (days_paid IS NULL OR days_paid BETWEEN 0 AND 31),
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, paid_on);
 """
 
 
@@ -134,11 +150,20 @@ def migrate():
             CREATE INDEX IF NOT EXISTS idx_contracts_user_end ON contracts(user_id, end_date);
             COMMIT;
             """)
-        rcols = {r[1] for r in c.execute("PRAGMA table_info(are_rights)")}
-        if "aj_net_cents" not in rcols:
-            c.execute("ALTER TABLE are_rights ADD COLUMN aj_net_cents INTEGER "
-                      "CHECK (aj_net_cents IS NULL OR aj_net_cents > 0)")
+        migrate_rights(c)
 
+def migrate_rights(c):
+    cols = {r[1] for r in c.execute("PRAGMA table_info(are_rights)")}
+    if not cols:        # installation neuve, ou déjà migrée
+        return
+    if "aj_net_cents" not in cols:
+        c.execute("ALTER TABLE are_rights ADD COLUMN aj_net_cents INTEGER")
+    c.execute(
+        "INSERT INTO rights(user_id, annexe, fct_date, start_date, anniversary_date,"
+        " aj_net_cents, opening_type)"
+        " SELECT user_id, annexe, fct_date, start_date, anniversary_date,"
+        " aj_net_cents, 'renewal' FROM are_rights")
+    c.execute("ALTER TABLE are_rights RENAME TO are_rights_old")
 
 migrate()
 
@@ -534,26 +559,23 @@ def delete_document(did):
     remove_files(uid, [r["stored_name"]])
     return jsonify(ok=True)
 
-
 @app.get("/api/summary")
 @login_required
 def summary():
     db, uid = get_db(), session["uid"]
     today = date.today()
     start, mode = today - timedelta(days=364), "rolling"
-    fct_date = da = None
-    r = db.execute("SELECT fct_date, anniversary_date FROM are_rights WHERE user_id=?",
-                   (uid,)).fetchone()
+    fct_date = da_iso = None
+    r = current_right(db, uid)
     if r:
-        fct = date.fromisoformat(r["fct_date"])
-        fct_date = fct.isoformat()
-        da = r["anniversary_date"] or add_year(fct).isoformat()
-        if fct + timedelta(days=1) > start:     # heures déjà utilisées : exclues
+        fct, _, da, _ = right_dates(r)
+        fct_date, da_iso = fct.isoformat(), da.isoformat()
+        if fct + timedelta(days=1) > start:
             start, mode = fct + timedelta(days=1), "since_fct"
     t = period_totals(db, uid, start, today)
     return jsonify(hours=t["hours"], contracts=t["contracts"], target=HOURS_TARGET,
                    window_start=start.isoformat(), window_end=today.isoformat(),
-                   mode=mode, fct_date=fct_date, anniversary_date=da)
+                   mode=mode, fct_date=fct_date, anniversary_date=da_iso)
 
 # ---------- API compte ----------
 def bump_sessions(db, uid):
@@ -629,59 +651,73 @@ def import_data():
     if not isinstance(data, dict):
         return err("Fichier JSON invalide")
     items = data.get("contracts", [])
-    if not isinstance(items, list):
-        return err("Format inattendu : « contracts » doit être une liste")
-    if len(items) > MAX_IMPORT_CONTRACTS:
-        return err(f"{MAX_IMPORT_CONTRACTS} contrats maximum par import")
+    raw_rights = data.get("droits_are")
+    if raw_rights is None and data.get("droit_are"):       # ancien format (0.4 à 0.6)
+        raw_rights = [data["droit_are"]]
+    raw_pay = data.get("virements", [])
+    for name, lst in (("contracts", items), ("droits_are", raw_rights or []), ("virements", raw_pay)):
+        if not isinstance(lst, list):
+            return err(f"Format inattendu : « {name} » doit être une liste")
+    if len(items) > MAX_IMPORT_CONTRACTS or len(raw_pay) > MAX_IMPORT_CONTRACTS:
+        return err(f"{MAX_IMPORT_CONTRACTS} éléments maximum par liste")
 
-    parsed, errors = [], []
-    for i, it in enumerate(items, 1):
-        try:
-            parsed.append(parse_contract(it))
-        except ValueError as e:
-            errors.append(f"Contrat n°{i} : {e}")
-    rights = None
-    if data.get("droit_are"):
-        try:
-            rights = parse_rights(data["droit_are"])
-        except ValueError as e:
-            errors.append(f"Droit ARE : {e}")
+    errors, contracts, rights, pays = [], [], [], []
+    for label, src, dst, fn in (("Contrat", items, contracts, parse_contract),
+                                ("Droit", raw_rights or [], rights, parse_rights),
+                                ("Virement", raw_pay, pays, parse_payment)):
+        for i, it in enumerate(src, 1):
+            try:
+                dst.append(fn(it))
+            except ValueError as e:
+                errors.append(f"{label} n°{i} : {e}")
     if errors:
         return jsonify(error="Import refusé, rien n'a été modifié", details=errors[:10]), 400
-    if not parsed and rights is None:
+    if not (contracts or rights or pays):
         return err("Aucune donnée à importer dans ce fichier")
 
     db, uid = get_db(), session["uid"]
-    seen = {(r["employer"].lower(), r["mission"], r["start_date"], r["end_date"], r["hours"])
-            for r in db.execute(
-                "SELECT employer, mission, start_date, end_date, hours"
-                " FROM contracts WHERE user_id=?", (uid,))}
-    new, dup = [], 0
-    for v in parsed:   # v = (employer, mission, hours, start, end, gross, net, comment)
-        key = (v[0].lower(), v[1], v[3], v[4], v[2])
-        if key in seen:
+    seen_c = {(r["employer"].lower(), r["mission"], r["start_date"], r["end_date"], r["hours"])
+              for r in db.execute("SELECT employer, mission, start_date, end_date, hours"
+                                  " FROM contracts WHERE user_id=?", (uid,))}
+    seen_r = {(r["annexe"], r["fct_date"], r["start_date"]) for r in db.execute(
+        "SELECT annexe, fct_date, start_date FROM rights WHERE user_id=?", (uid,))}
+    seen_p = {(r["paid_on"], r["month_covered"], r["amount_cents"]) for r in db.execute(
+        "SELECT paid_on, month_covered, amount_cents FROM payments WHERE user_id=?", (uid,))}
+    new_c, new_r, new_p, dup = [], [], [], 0
+    for v in contracts:     # (employer, mission, hours, start, end, gross, net, comment)
+        k = (v[0].lower(), v[1], v[3], v[4], v[2])
+        if k in seen_c:
             dup += 1
-            continue
-        seen.add(key)
-        new.append(v)
-
-    rights_status = "none"
+        else:
+            seen_c.add(k); new_c.append(v)
+    for v in rights:        # (annexe, fct, start, da, aj, opening, note)
+        k = (v[0], v[1], v[2])
+        if k in seen_r:
+            dup += 1
+        else:
+            seen_r.add(k); new_r.append(v)
+    for v in pays:          # (paid_on, month, amount, days, note)
+        k = (v[0], v[1], v[2])
+        if k in seen_p:
+            dup += 1
+        else:
+            seen_p.add(k); new_p.append(v)
+    n_r = db.execute("SELECT COUNT(*) FROM rights WHERE user_id=?", (uid,)).fetchone()[0]
+    n_p = db.execute("SELECT COUNT(*) FROM payments WHERE user_id=?", (uid,)).fetchone()[0]
+    if n_r + len(new_r) > MAX_RIGHTS or n_p + len(new_p) > MAX_PAYMENTS:
+        return err("Limite de droits ou de virements dépassée")
     try:
         db.executemany(
             "INSERT INTO contracts(user_id, employer, mission, hours, start_date,"
             " end_date, gross_cents, net_cents, comment) VALUES (?,?,?,?,?,?,?,?,?)",
-            [(uid, *v) for v in new])
-        if rights is not None:
-            if db.execute("SELECT 1 FROM are_rights WHERE user_id=?", (uid,)).fetchone():
-                rights_status = "ignored"
-            else:
-                db.execute(UPSERT_RIGHTS, (uid, *rights))
-                rights_status = "imported"
+            [(uid, *v) for v in new_c])
+        db.executemany(RIGHT_INSERT, [(uid, *v) for v in new_r])
+        db.executemany(PAYMENT_INSERT, [(uid, *v) for v in new_p])
         db.commit()
     except sqlite3.Error:
         db.rollback()
         return err("Erreur lors de l'import, rien n'a été modifié", 500)
-    return jsonify(added=len(new), duplicates=dup, rights=rights_status)
+    return jsonify(added=len(new_c), rights=len(new_r), payments=len(new_p), duplicates=dup)
 
 @app.get("/api/account/export")
 @login_required
@@ -698,7 +734,12 @@ def export_account():
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("donnees.json", json.dumps(
             {"version": APP_VERSION, "email": u["email"], "created_at": u["created_at"],
-             "droit_are": (build_overview(db, uid) or {}).get("settings"),
+             "droits_are": [{k: v for k, v in x.items() if k in (
+                 "annexe", "opening_type", "fct_date", "start_date", "note")}
+                 | {"anniversary_date": x["anniversary_input"], "aj_net": x["aj_net"]}
+                 for x in rights_history(db, uid)],
+             "virements": [{k: v for k, v in p.items() if k != "id"}
+                           for p in payments_list(db, uid)],
              "contracts": contracts}, ensure_ascii=False, indent=2))
         for d in docs:
             try:
@@ -728,18 +769,21 @@ def delete_account():
     session.clear()
     return jsonify(ok=True)
 
-# ---------- Intermittence : règles ARE ----------
+# ---------- Intermittence ----------
 HOURS_TARGET = 507
+OPENING_TYPES = ("first", "renewal", "anticipated")
+MAX_RIGHTS = 50
+MAX_PAYMENTS = 1000
+MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 def add_year(d):
     try:
         return d.replace(year=d.year + 1)
-    except ValueError:          # 29 février
+    except ValueError:
         return d.replace(year=d.year + 1, day=28)
 
 
 def period_totals(db, uid, start, end):
-    """Heures et salaires bruts des contrats sur [start, end], proratisés au jour."""
     zero = {"hours": 0.0, "gross": 0.0, "contracts": 0, "missing_gross": 0}
     if start > end:
         return zero
@@ -762,47 +806,77 @@ def period_totals(db, uid, start, end):
             "contracts": n, "missing_gross": missing}
 
 
-def build_overview(db, uid):
-    r = db.execute("SELECT * FROM are_rights WHERE user_id=?", (uid,)).fetchone()
-    if not r:
-        return None
-    today = date.today()
+def right_dates(r):
     fct = date.fromisoformat(r["fct_date"])
     start = date.fromisoformat(r["start_date"])
     da_auto = add_year(fct)
     da = date.fromisoformat(r["anniversary_date"]) if r["anniversary_date"] else da_auto
+    return fct, start, da, da_auto
+
+
+def current_right(db, uid):
+    return db.execute(
+        "SELECT * FROM rights WHERE user_id=? ORDER BY start_date DESC, id DESC LIMIT 1",
+        (uid,)).fetchone()
+
+
+def cents(v):
+    return None if v is None else v / 100
+
+
+def rights_history(db, uid):
+    rows = db.execute("SELECT * FROM rights WHERE user_id=? ORDER BY start_date ASC, id ASC",
+                      (uid,)).fetchall()
+    out = []
+    for i, r in enumerate(rows):
+        fct, start, da, _ = right_dates(r)
+        end, early = da, False
+        if i + 1 < len(rows):       # un droit ouvert plus tôt remplace celui-ci
+            cut = date.fromisoformat(rows[i + 1]["start_date"]) - timedelta(days=1)
+            if cut < da:
+                end, early = cut, True
+        tot = period_totals(db, uid, fct - timedelta(days=364), fct)
+        out.append({
+            "id": r["id"], "annexe": r["annexe"], "opening_type": r["opening_type"],
+            "fct_date": fct.isoformat(), "start_date": start.isoformat(),
+            "anniversary_date": da.isoformat(), "anniversary_input": r["anniversary_date"],
+            "end_date": end.isoformat(), "ended_early": early,
+            "aj_net": cents(r["aj_net_cents"]), "note": r["note"],
+            "ref_hours": tot["hours"], "ref_gross": tot["gross"],
+            "ref_missing_gross": tot["missing_gross"]})
+    out.reverse()
+    return out
+
+
+def build_overview(db, uid):
+    r = current_right(db, uid)
+    if not r:
+        return None
+    today = date.today()
+    fct, start, da, da_auto = right_dates(r)
     days_left = (da - today).days
     status = "expired" if days_left < 0 else "soon" if days_left <= 15 else "active"
     total_days = (da - start).days + 1
-
-    cur_tot = period_totals(db, uid, fct - timedelta(days=364), fct)
-    aj_net = None if r["aj_net_cents"] is None else r["aj_net_cents"] / 100
-
     win_start = fct + timedelta(days=1)
     total = period_totals(db, uid, win_start, da)
     done = period_totals(db, uid, win_start, min(da, today))
     needed = max(0.0, HOURS_TARGET - total["hours"])
     per_week = needed / (days_left / 7) if days_left > 0 and needed > 0 else None
-
     return {
-        "annexe": r["annexe"],
+        "right_id": r["id"], "annexe": r["annexe"], "opening_type": r["opening_type"],
         "fct_date": fct.isoformat(), "start_date": start.isoformat(),
         "anniversary_date": da.isoformat(), "anniversary_auto": da_auto.isoformat(),
         "anniversary_overridden": bool(r["anniversary_date"]),
         "exam_date": (da + timedelta(days=1)).isoformat(),
-        "days_left": days_left, "status": status,
+        "days_left": days_left, "status": status, "aj_net": cents(r["aj_net_cents"]),
         "elapsed_pct": max(0, min(100, round((today - start).days / max(1, total_days) * 100))),
         "total_days": total_days,
-        "current": {"period_start": (fct - timedelta(days=364)).isoformat(),
-                    "period_end": fct.isoformat(), "totals": cur_tot, "aj_net": aj_net},
         "projection": {
             "window_start": win_start.isoformat(), "window_end": da.isoformat(),
             "hours_total": total["hours"], "hours_done": done["hours"],
             "hours_planned": round(total["hours"] - done["hours"], 2),
-            "hours_needed": round(needed, 1), "per_week": per_week},
-        "settings": {
-            "annexe": r["annexe"], "fct_date": r["fct_date"], "start_date": r["start_date"],
-            "anniversary_date": r["anniversary_date"], "aj_net": aj_net},
+            "hours_needed": round(needed, 1), "per_week": per_week,
+            "can_request_early": done["hours"] >= HOURS_TARGET and days_left > 0},
     }
 
 
@@ -827,6 +901,9 @@ def parse_rights(d):
         raise ValueError("Annexe invalide")
     if annexe not in (8, 10):
         raise ValueError("Annexe invalide")
+    opening = str(d.get("opening_type") or "renewal")
+    if opening not in OPENING_TYPES:
+        raise ValueError("Type d'ouverture invalide")
     fct = dt("fct_date", True)
     start = dt("start_date") or fct + timedelta(days=1)
     da = dt("anniversary_date")
@@ -837,8 +914,70 @@ def parse_rights(d):
     ajn = to_cents(d.get("aj_net"))
     if ajn is not None and not (0 < ajn <= 50000):
         raise ValueError("AJ hors limites (0 à 500 €)")
+    note = str(d.get("note") or "").strip()
+    if len(note) > 200:
+        raise ValueError("Note : 200 caractères max")
     return (annexe, fct.isoformat(), start.isoformat(),
-            da.isoformat() if da else None, ajn)
+            da.isoformat() if da else None, ajn, opening, note)
+
+
+RIGHT_INSERT = ("INSERT INTO rights(user_id, annexe, fct_date, start_date, anniversary_date,"
+                " aj_net_cents, opening_type, note) VALUES (?,?,?,?,?,?,?,?)")
+
+
+def parse_payment(d):
+    if not isinstance(d, dict):
+        raise ValueError("Données invalides")
+    try:
+        paid_on = date.fromisoformat(str(d.get("paid_on")))
+    except ValueError:
+        raise ValueError("Date du virement invalide")
+    amount = to_cents(d.get("amount"))
+    if amount is None or not (0 < amount <= 1_000_000):
+        raise ValueError("Montant invalide (0 à 10 000 €)")
+    month = str(d.get("month_covered") or "").strip()
+    if not month:      # par défaut : le mois précédant le virement
+        month = (paid_on.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    elif not MONTH_RE.match(month):
+        raise ValueError("Mois concerné invalide (format AAAA-MM)")
+    days = d.get("days_paid")
+    if days in (None, ""):
+        days = None
+    else:
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            raise ValueError("Nombre de jours invalide")
+        if not 0 <= days <= 31:
+            raise ValueError("Jours indemnisés : 0 à 31")
+    note = str(d.get("note") or "").strip()
+    if len(note) > 200:
+        raise ValueError("Note : 200 caractères max")
+    return (paid_on.isoformat(), month, amount, days, note)
+
+
+PAYMENT_INSERT = ("INSERT INTO payments(user_id, paid_on, month_covered, amount_cents,"
+                  " days_paid, note) VALUES (?,?,?,?,?,?)")
+
+
+def payments_list(db, uid):
+    return [{"id": r["id"], "paid_on": r["paid_on"], "month_covered": r["month_covered"],
+             "amount": r["amount_cents"] / 100, "days_paid": r["days_paid"], "note": r["note"]}
+            for r in db.execute("SELECT * FROM payments WHERE user_id=?"
+                                " ORDER BY paid_on DESC, id DESC", (uid,))]
+
+
+def payments_totals(db, uid, right_start):
+    today = date.today()
+    q = "SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE user_id=? AND paid_on > ? AND paid_on <= ?"
+    last12 = db.execute(q, (uid, (today - timedelta(days=365)).isoformat(),
+                            today.isoformat())).fetchone()[0]
+    since = None
+    if right_start:
+        since = db.execute(
+            "SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE user_id=? AND paid_on >= ?",
+            (uid, right_start)).fetchone()[0] / 100
+    return {"last12": last12 / 100, "since_right": since}
 
 
 @app.get("/intermittence")
@@ -850,36 +989,90 @@ def intermittence_page():
 @app.get("/api/intermittence")
 @login_required
 def get_intermittence():
-    return jsonify(overview=build_overview(get_db(), session["uid"]))
+    db, uid = get_db(), session["uid"]
+    ov = build_overview(db, uid)
+    return jsonify(overview=ov, rights=rights_history(db, uid),
+                   payments=payments_list(db, uid),
+                   totals=payments_totals(db, uid, ov["start_date"] if ov else None))
 
-UPSERT_RIGHTS = (
-    "INSERT INTO are_rights(user_id, annexe, fct_date, start_date, anniversary_date,"
-    " aj_net_cents) VALUES (?,?,?,?,?,?)"
-    " ON CONFLICT(user_id) DO UPDATE SET annexe=excluded.annexe,"
-    " fct_date=excluded.fct_date, start_date=excluded.start_date,"
-    " anniversary_date=excluded.anniversary_date, aj_net_cents=excluded.aj_net_cents,"
-    " updated_at=CURRENT_TIMESTAMP")
 
-@app.put("/api/intermittence")
+@app.post("/api/rights")
 @login_required
-def save_intermittence():
+def add_right():
     try:
         vals = parse_rights(request.get_json(silent=True))
     except ValueError as e:
         return err(str(e))
     db, uid = get_db(), session["uid"]
-    db.execute(UPSERT_RIGHTS, (uid, *vals))
+    if db.execute("SELECT COUNT(*) FROM rights WHERE user_id=?", (uid,)).fetchone()[0] >= MAX_RIGHTS:
+        return err(f"{MAX_RIGHTS} droits maximum")
+    cur = db.execute(RIGHT_INSERT, (uid, *vals))
     db.commit()
-    return jsonify(overview=build_overview(db, uid))
+    return jsonify(id=cur.lastrowid), 201
 
 
-@app.delete("/api/intermittence")
+@app.put("/api/rights/<int:rid>")
 @login_required
-def reset_intermittence():
+def edit_right(rid):
+    try:
+        vals = parse_rights(request.get_json(silent=True))
+    except ValueError as e:
+        return err(str(e))
     db = get_db()
-    db.execute("DELETE FROM are_rights WHERE user_id=?", (session["uid"],))
+    cur = db.execute(
+        "UPDATE rights SET annexe=?, fct_date=?, start_date=?, anniversary_date=?,"
+        " aj_net_cents=?, opening_type=?, note=? WHERE id=? AND user_id=?",
+        (*vals, rid, session["uid"]))
     db.commit()
-    return jsonify(ok=True)
+    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
+
+
+@app.delete("/api/rights/<int:rid>")
+@login_required
+def delete_right(rid):
+    db = get_db()
+    cur = db.execute("DELETE FROM rights WHERE id=? AND user_id=?", (rid, session["uid"]))
+    db.commit()
+    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
+
+
+@app.post("/api/payments")
+@login_required
+def add_payment():
+    try:
+        vals = parse_payment(request.get_json(silent=True))
+    except ValueError as e:
+        return err(str(e))
+    db, uid = get_db(), session["uid"]
+    if db.execute("SELECT COUNT(*) FROM payments WHERE user_id=?", (uid,)).fetchone()[0] >= MAX_PAYMENTS:
+        return err(f"{MAX_PAYMENTS} virements maximum")
+    cur = db.execute(PAYMENT_INSERT, (uid, *vals))
+    db.commit()
+    return jsonify(id=cur.lastrowid), 201
+
+
+@app.put("/api/payments/<int:pid>")
+@login_required
+def edit_payment(pid):
+    try:
+        vals = parse_payment(request.get_json(silent=True))
+    except ValueError as e:
+        return err(str(e))
+    db = get_db()
+    cur = db.execute(
+        "UPDATE payments SET paid_on=?, month_covered=?, amount_cents=?, days_paid=?, note=?"
+        " WHERE id=? AND user_id=?", (*vals, pid, session["uid"]))
+    db.commit()
+    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
+
+
+@app.delete("/api/payments/<int:pid>")
+@login_required
+def delete_payment(pid):
+    db = get_db()
+    cur = db.execute("DELETE FROM payments WHERE id=? AND user_id=?", (pid, session["uid"]))
+    db.commit()
+    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
 
 if __name__ == "__main__":
     app.run(debug=os.environ.get("DEV") == "1", port=5007)

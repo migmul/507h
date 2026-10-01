@@ -84,3 +84,5 @@ label.check { display:flex; gap:.5rem; align-items:center; color:var(--text); }
 label.check input { width:auto; margin:0; }
 select { width:100%; padding:.6rem; margin-top:.25rem; background:var(--bg); color:var(--text);
          border:1px solid var(--border); border-radius:8px; font:inherit; }
+.current-row td { background: rgba(255, 90, 54, .07); }
+td.comment { white-space: normal; max-width: 260px; }
