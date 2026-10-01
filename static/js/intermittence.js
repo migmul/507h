@@ -3,7 +3,8 @@ const csrf = document.querySelector('meta[name="csrf-token"]').content;
 const eur = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
 const fdate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('fr-FR');
 const fmonth = (m) => new Date(m + '-01T00:00:00').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-const fh = (h) => `${Math.round(h * 10) / 10} h`;
+const nf1 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+const fh = (h) => (h == null ? '–' : `${nf1.format(h)} h`);
 const money = (v) => (v == null ? '–' : eur.format(v));
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const TYPE = { first: 'Première ouverture', renewal: 'Renouvellement', anticipated: 'Demande anticipée' };
@@ -66,7 +67,7 @@ function renderCurrent(o) {
 
     const p = o.projection;
     $('#proj-bar').style.width = Math.min(100, (p.hours_total / 507) * 100) + '%';
-    $('#proj-hours').textContent = Math.round(p.hours_total * 10) / 10;
+    $('#proj-hours').textContent = nf1.format(p.hours_total);
     $('#proj-msg').textContent = p.hours_needed > 0
         ? `Il manque ${fh(p.hours_needed)}` + (p.per_week ? ` · ${fh(p.per_week)} par semaine d'ici l'examen` : '')
         : 'Seuil atteint';

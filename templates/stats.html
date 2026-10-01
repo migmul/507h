@@ -18,14 +18,14 @@
 
     <div class="tiles">
         <section class="card tile">
-            <p class="stat-label">Heures</p>
+            <p class="stat-label">Heures sur la période</p>
             <p class="big" id="t-hours"></p>
-            <p class="muted small">sur la période</p>
+            <p class="muted small" id="t-hours-sub"></p>
         </section>
         <section class="card tile">
-            <p class="stat-label">Par semaine</p>
-            <p class="big" id="t-week"></p>
-            <p class="muted small" id="t-week-sub"></p>
+            <p class="stat-label">Heures par mois</p>
+            <p class="big" id="t-month"></p>
+            <p class="muted small" id="t-month-sub"></p>
         </section>
         <section class="card tile">
             <p class="stat-label">Revenu net par mois</p>
@@ -67,9 +67,9 @@
         </details>
     </section>
 
-    <div class="cols-2">
+    <div class="cols-2 stretch">
         <section class="card">
-            <h2>Heures par mois</h2>
+            <div class="card-head"><h2>Heures par mois</h2></div>
             <div class="chart" id="chart-hours"></div>
         </section>
         <section class="card">
@@ -80,7 +80,7 @@
             <div class="chart" id="chart-income"></div>
         </section>
         <section class="card">
-            <h2>Heures par droit</h2>
+            <div class="card-head"><h2>Heures par droit</h2></div>
             <div class="chart" id="chart-rights"></div>
         </section>
         <section class="card">

@@ -2,7 +2,8 @@ const $ = (s) => document.querySelector(s);
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
 const eur = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
 const fdate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('fr-FR');
-const fh = (h) => `${Math.round(h * 10) / 10} h`;
+const nf1 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+const fh = (h) => (h == null ? '–' : `${nf1.format(h)} h`);
 const money = (v) => (v === null || v === undefined ? '–' : eur.format(v));
 const KIND_LABEL = { contrat: 'Contrat', aem: 'AEM', bulletin: 'Bulletin' };
 
@@ -279,11 +280,11 @@ function render() {
 async function loadSummary() {
     const s = await api('/api/summary');
     $('#bar').style.width = Math.min(100, (s.hours / s.target) * 100) + '%';
-    $('#hours').textContent = Math.round(s.hours * 10) / 10;
+    $('#hours').textContent = nf1.format(s.hours);
     $('#range').textContent = ` (du ${fdate(s.window_start)} au ${fdate(s.window_end)})`;
     const left = Math.max(0, s.target - s.hours);
     $('#remaining').textContent = left > 0
-        ? `Il te manque ${Math.round(left * 10) / 10} h.`
+        ? `Il te manque ${nf1.format(left)} h.`
         : 'Seuil des 507 h atteint';
     $('#mode').textContent = s.mode === 'since_fct'
         ? `Heures depuis ta fin de contrat retenue du ${fdate(s.fct_date)}` +

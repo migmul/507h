@@ -3,7 +3,8 @@ const csrf = document.querySelector('meta[name="csrf-token"]').content;
 const NS = 'http://www.w3.org/2000/svg';
 const COLORS = ['#ff5a36', '#4cc9f0', '#5ad19a', '#f5b942', '#b388ff', '#ff8fab', '#8bd3dd', '#9aa3b5'];
 const eur0 = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-const fh = (h) => (h == null ? '–' : `${Math.round(h * 10) / 10} h`);
+const nf1 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+const fh = (h) => (h == null ? '–' : `${nf1.format(h)} h`);
 const fmonth = (m, long) => new Date(m + '-01T00:00:00').toLocaleDateString(
     'fr-FR', long ? { month: 'long', year: 'numeric' } : { month: 'short', year: '2-digit' });
 const fdate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('fr-FR');
@@ -285,8 +286,9 @@ function render() {
 
     // Chiffres clés
     $('#t-hours').textContent = fh(st.hours_total);
-    $('#t-week').textContent = fh(st.hours_per_week);
-    $('#t-week-sub').textContent = hs ? `${fh(hs.mean)} par mois` : '';
+    $('#t-hours-sub').textContent = st.hours_per_week != null ? `soit ${fh(st.hours_per_week)} par semaine` : '';
+    $('#t-month').textContent = hs ? fh(hs.mean) : '–';
+    $('#t-month-sub').textContent = hs ? `médiane ${fh(hs.median)}` : '';
     $('#t-income').textContent = total ? eur0.format(total.mean) : '–';
     $('#t-income-sub').textContent = total ? `médiane ${eur0.format(total.median)}` : '';
     $('#t-best').textContent = hasBest ? eur0.format(total.best) : '–';

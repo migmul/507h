@@ -3,6 +3,15 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.14.1] - 2026-10-01
+
+### Modifié
+- Statistiques : les tuiles suivent toutes le même schéma (intitulé, chiffre, information complémentaire). « Heures sur la période » indique le rythme hebdomadaire ; « Heures par mois » donne la moyenne et la médiane ; « Revenu net par mois » et « Meilleur mois » sont inchangés.
+- Statistiques : les cartes de graphiques d'une même rangée ont la même hauteur et le même en-tête, de sorte que les graphiques démarrent à la même hauteur.
+- Les cartes repliables (« Moyennes, médianes et meilleurs mois », « Calendrier d'activité ») sont plus basses et leur titre est centré verticalement quand elles sont fermées.
+- Les heures s'affichent avec la virgule décimale française (13,1 h au lieu de 13.1 h) sur le tableau de bord, la page Intermittence et les statistiques.
+- Hauteur minimale commune des en-têtes de carte (2,5 rem).
+
 ## [0.14] - 2026-10-01
 
 ### Modifié

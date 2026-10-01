@@ -223,6 +223,7 @@ a {
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
+    min-height: 2.5rem;
     margin-bottom: .75rem;
 }
 
@@ -957,6 +958,15 @@ details.fold[open] > summary {
 
 details.method {
     padding: 0 .25rem;
+}
+
+/* Cartes repliables : pas de marge au-dessus, plus basses quand elles sont fermées */
+details.fold {
+    margin-top: 0;
+}
+
+.card:has(> details.fold:not([open])) {
+    padding-block: 1rem;
 }
 
 /* ==========================================================================
