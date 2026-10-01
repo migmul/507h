@@ -14,6 +14,7 @@ import ssl
 import struct
 import threading
 import segno
+from dotenv import load_dotenv
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 from urllib.parse import quote
@@ -31,9 +32,10 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.12"
+APP_VERSION = "0.12.1"
 
 BASE = Path(__file__).parent
+load_dotenv(BASE / ".env")
 INSTANCE = BASE / "instance"
 INSTANCE.mkdir(exist_ok=True)
 DB_PATH = INSTANCE / "507h.db"
@@ -69,6 +71,12 @@ app.config.update(
 )
 FERNET = Fernet(load_secret("FILE_KEY", "file_key", lambda: Fernet.generate_key().decode()))
 app.jinja_env.globals["app_version"] = APP_VERSION
+
+if os.environ.get("MAIL_CONSOLE") == "1":
+    app.logger.warning("MAIL_CONSOLE actif : le contenu des e-mails (liens compris) "
+                       "est écrit dans les journaux.")
+if os.environ.get("SMTP_HOST") and not os.environ.get("APP_BASE_URL"):
+    app.logger.warning("SMTP_HOST défini sans APP_BASE_URL : l'envoi d'e-mails est désactivé.")
 
 # ---------- Base de données ----------
 SCHEMA = """
@@ -347,10 +355,10 @@ def hash_token(raw):
 
 # --- E-mails ---
 def mail_mode():
-    if os.environ.get("SMTP_HOST") and os.environ.get("APP_BASE_URL"):
-        return "smtp"
     if os.environ.get("MAIL_CONSOLE") == "1":
         return "console"
+    if os.environ.get("SMTP_HOST") and os.environ.get("APP_BASE_URL"):
+        return "smtp"
     return None
 
 
@@ -384,8 +392,9 @@ def deliver(msg):
 
 
 def send_mail(to, subject, text):
-    if mail_mode() == "console":
-        app.logger.warning("MAIL (console) à %s : %s\n%s", to, subject, text)
+    if os.environ.get("MAIL_CONSOLE") == "1":
+        app.logger.warning("MAIL à %s : %s\n%s", to, subject, text)
+    if mail_mode() != "smtp":
         return
     msg = EmailMessage()
     msg["From"] = os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER", "")

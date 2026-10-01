@@ -3,6 +3,17 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.12.1] - 2026-10-01
+
+### Ajouté
+- Chargement automatique du fichier `.env` au démarrage (`python-dotenv`). Les variables déjà définies dans l'environnement (par exemple par `systemd`) restent prioritaires.
+- Fichier `.env.example` listant toutes les variables de configuration.
+- Avertissements au démarrage : `MAIL_CONSOLE` actif (les liens sont écrits dans les journaux) et `SMTP_HOST` défini sans `APP_BASE_URL` (envoi d'e-mails désactivé).
+
+### Modifié
+- `MAIL_CONSOLE=1` écrit désormais le contenu des e-mails dans les journaux en plus de les envoyer quand le SMTP est configuré (auparavant, le SMTP désactivait la sortie console).
+- `requirements.txt` complété avec des versions minimales : `segno>=1.6`, `python-dotenv>=1.0`.
+
 ## [0.12] - 2026-10-01
 
 ### Ajouté
