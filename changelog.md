@@ -3,6 +3,17 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.8.2] - 2026-10-01
+
+### Modifié
+- `style.css` réorganisé en sections commentées (variables, base, mise en page, utilitaires, formulaires, boutons, tableaux, composants, modales, graphiques, calendrier), une propriété par ligne, indentation en 4 espaces.
+- Nouvelles variables de couleur (`--ok`, `--warn`, `--info`, `--accent-dark`) à la place des valeurs répétées.
+- Les styles des formulaires de modale s'appliquent à toutes les modales (`dialog form`) et plus seulement au formulaire de contrat : les modales « Droit ARE » et « Virement » ont désormais la même grille et les mêmes marges.
+- Le contour de focus s'applique aussi aux listes déroulantes et aux zones de texte.
+
+### Supprimé
+- Règles CSS devenues inutiles : `.inner`, `.col`, `#bar` (couvert par `.progress > div`), doublon de `.container`.
+
 ## [0.8.1] - 2026-10-01
 
 ### Modifié
