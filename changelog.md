@@ -3,6 +3,23 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.15] - 2026-10-01
+
+### Ajouté
+- Affichage mobile (écrans de 700 px et moins). Barre de navigation fixe en bas de l'écran avec icônes (Contrats, Intermittence, Statistiques, Compte), compatible avec les zones sûres des téléphones à encoche. La déconnexion reste en haut à droite.
+- Liste des contrats en cartes sur mobile : employeur et heures, mission, dates, documents, net et boutons d'action. Le brut est masqué. Un sélecteur de tri remplace les en-têtes de colonnes.
+- Barre de recherche des contrats avec bouton « Filtres » (compteur de filtres actifs) qui déplie les filtres sur mobile.
+- Historique des droits et virements en lignes compactes sur mobile.
+- Modales en plein écran sur mobile, avec en-tête et boutons d'action fixes pour rester accessibles au clavier virtuel.
+- Graphiques adaptés à la largeur de l'écran (étiquettes de l'axe horizontal espacées) et recalculés au changement d'orientation. Infobulles activées au toucher.
+- Calendrier d'activité : colonne des mois fixe pendant le défilement horizontal.
+- Balises `viewport-fit=cover` et `theme-color` (clair et sombre) pour préparer la future version PWA.
+
+### Modifié
+- Le menu du haut devient une barre de navigation en bas sur mobile ; sur ordinateur, il est inchangé.
+- Champs de saisie à 16 px sur mobile (évite le zoom automatique d'iOS) et boutons d'au moins 40 px de haut.
+- Tuiles de statistiques en deux colonnes sur mobile.
+
 ## [0.14.1] - 2026-10-01
 
 ### Modifié

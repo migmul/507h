@@ -32,7 +32,7 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.14.1"
+APP_VERSION = "0.15"
 
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
@@ -1726,4 +1726,4 @@ def twofa_recovery():
     return jsonify(recovery_codes=codes)
 
 if __name__ == "__main__":
-    app.run(debug=os.environ.get("DEV") == "1", port=5007)
+    app.run(host="0.0.0.0", debug=os.environ.get("DEV") == "1", port=5007)

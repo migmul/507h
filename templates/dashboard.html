@@ -17,23 +17,33 @@
             <button class="primary inline" id="add-btn" type="button">+ Ajouter un contrat</button>
         </div>
 
-        <div class="toolbar">
-            <input id="q" class="grow" type="search" placeholder="Rechercher (employeur, mission, commentaire)" aria-label="Rechercher">
-            <select id="f-year" aria-label="Année"></select>
-            <select id="f-employer" aria-label="Employeur"></select>
-            <select id="f-status" aria-label="Statut">
-                <option value="">Tous les contrats</option>
-                <option value="dup">Doublons possibles</option>
-                <option value="nonet">Sans brut ou net</option>
-                <option value="nodoc">Sans document</option>
-            </select>
-            <label class="check"><input type="checkbox" id="group" checked> Par année</label>
-            <button class="ghost" id="reset-filters" type="button" hidden>Réinitialiser</button>
+        <div class="toolbar" id="toolbar">
+            <input id="q" class="grow" type="search" placeholder="Rechercher un contrat" aria-label="Rechercher">
+            <button class="ghost mobile-only" id="filters-toggle" type="button">Filtres</button>
+            <div class="filter-group">
+                <select id="f-year" aria-label="Année"></select>
+                <select id="f-employer" aria-label="Employeur"></select>
+                <select id="f-status" aria-label="Statut">
+                    <option value="">Tous les contrats</option>
+                    <option value="dup">Doublons possibles</option>
+                    <option value="nonet">Sans brut ou net</option>
+                    <option value="nodoc">Sans document</option>
+                </select>
+                <select id="sort-mobile" class="mobile-only" aria-label="Tri">
+                    <option value="end_date:desc">Fin : plus récent</option>
+                    <option value="end_date:asc">Fin : plus ancien</option>
+                    <option value="employer:asc">Employeur : A → Z</option>
+                    <option value="hours:desc">Heures : plus élevées</option>
+                    <option value="net:desc">Net : plus élevé</option>
+                </select>
+                <label class="check"><input type="checkbox" id="group" checked> Par année</label>
+                <button class="ghost" id="reset-filters" type="button" hidden>Réinitialiser</button>
+            </div>
         </div>
         <p class="muted small" id="result-info"></p>
 
         <div class="table-wrap">
-            <table>
+            <table class="t-contracts">
                 <thead><tr id="head-row"></tr></thead>
                 <tbody id="rows"></tbody>
             </table>

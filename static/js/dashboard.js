@@ -194,18 +194,21 @@ function renderHead() {
 /* ---------- Tableau ---------- */
 function contractRow(c) {
     const tr = document.createElement('tr');
+    tr.className = 'contract-row';
     const mission = el('td', c.mission || '–');
     if (isDup(c)) mission.append(el('span', 'Doublon', 'tag'));
     if (c.comment) mission.append(el('div', c.comment, 'comment'));
+    if (!c.mission && !isDup(c) && !c.comment) mission.className = 'none';
+    const docs = c.documents.length;
     tr.append(
         el('td', c.employer),
         mission,
         el('td', fdate(c.start_date)),
         el('td', fdate(c.end_date)),
         el('td', c.hours, 'num'),
-        el('td', money(c.gross), 'num'),
-        el('td', money(c.net), 'num'),
-        el('td', c.documents.length ? `${c.documents.length} PDF` : '–', 'num'));
+        el('td', money(c.gross), c.gross == null ? 'num none' : 'num'),
+        el('td', money(c.net), c.net == null ? 'num none' : 'num'),
+        el('td', docs ? `${docs} PDF` : '–', docs ? 'num' : 'num none'));
     const actions = el('td');
     const edit = el('button', 'Modifier', 'ghost');
     edit.onclick = () => openDialog(c);
@@ -266,6 +269,8 @@ function render() {
         ? `${list.length} contrat(s)${list.length !== contracts.length ? ` sur ${contracts.length}` : ''}`
         : '';
     $('#reset-filters').hidden = !isFiltered();
+    const active = [view.year, view.employer, view.status].filter(Boolean).length;
+    $('#filters-toggle').textContent = active ? `Filtres (${active})` : 'Filtres';
     const empty = $('#empty');
     empty.hidden = list.length > 0;
     empty.textContent = contracts.length
@@ -430,6 +435,16 @@ $('#reset-filters').onclick = () => {
     $('#f-status').value = '';
     setView({ q: '', year: '', employer: '', status: '' });
 };
+$('#filters-toggle').onclick = () => {
+    const open = $('#toolbar').classList.toggle('show-filters');
+    $('#filters-toggle').setAttribute('aria-expanded', String(open));
+};
+$('#sort-mobile').addEventListener('change', (e) => {
+    const [key, dir] = e.target.value.split(':');
+    sort = { key, dir };
+    renderHead();
+    render();
+});
 
 renderHead();
 load().finally(() => Boot.ready());

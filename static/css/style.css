@@ -1256,3 +1256,427 @@ main,
 .booting .progress > div {
     transition: none;
 }
+
+/* ==========================================================================
+   99. Mobile (700 px et moins)
+   ========================================================================== */
+
+.mobile-only {
+    display: none;
+}
+
+.nav-icon {
+    display: none;
+}
+
+.filter-group {
+    display: contents;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 700px) {
+    body {
+        padding-bottom: calc(68px + env(safe-area-inset-bottom));
+    }
+
+    .mobile-only {
+        display: inline-block;
+    }
+
+    /* ----- Navigation : barre fixe en bas ----- */
+    .site-header {
+        background: var(--bg);
+        backdrop-filter: none;
+    }
+
+    .header-inner {
+        height: 52px;
+    }
+
+    #logout {
+        margin-left: auto;
+    }
+
+    .site-nav {
+        position: fixed;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 30;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0;
+        padding-bottom: env(safe-area-inset-bottom);
+        overflow: visible;
+        background: var(--surface);
+        border-top: 1px solid var(--line);
+    }
+
+    .site-nav a {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: .15rem;
+        padding: .55rem .25rem .5rem;
+        font-size: .68rem;
+        border-radius: 0;
+    }
+
+    .site-nav a:hover,
+    .site-nav a[aria-current="page"] {
+        background: transparent;
+    }
+
+    .site-nav a[aria-current="page"] {
+        color: var(--accent);
+    }
+
+    .nav-icon {
+        display: block;
+        width: 22px;
+        height: 22px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    /* ----- Mise en page générale ----- */
+    .container {
+        gap: 1rem;
+        padding: 1rem .75rem 1.5rem;
+    }
+
+    .cols-2 {
+        gap: 1rem;
+    }
+
+    .card {
+        padding: 1rem;
+    }
+
+    .big {
+        font-size: 1.6rem;
+    }
+
+    .auth {
+        margin-top: 6vh;
+    }
+
+    .stack {
+        max-width: none;
+    }
+
+    .page-head select {
+        width: 100%;
+    }
+
+    /* ----- Formulaires et boutons : cibles tactiles ----- */
+    input,
+    select,
+    textarea {
+        padding: .7rem .75rem;
+        font-size: 16px;
+    }
+
+    button,
+    a.btn {
+        min-height: 40px;
+    }
+
+    .row .primary {
+        flex: 1;
+    }
+
+    /* ----- Tuiles de statistiques ----- */
+    .tiles {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .75rem;
+    }
+
+    .tile {
+        padding: .85rem;
+    }
+
+    .tile .big {
+        font-size: 1.3rem;
+    }
+
+    /* ----- Recherche et filtres ----- */
+    .toolbar .grow {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .toolbar .filter-group {
+        display: none;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .5rem;
+        width: 100%;
+    }
+
+    .toolbar.show-filters .filter-group {
+        display: grid;
+    }
+
+    .toolbar .filter-group select {
+        width: 100%;
+    }
+
+    /* ----- Tableaux : une carte par ligne ----- */
+    .t-contracts,
+    .t-contracts tbody,
+    .t-rights,
+    .t-rights tbody,
+    .t-payments,
+    .t-payments tbody {
+        display: block;
+    }
+
+    .t-contracts thead,
+    .t-rights thead,
+    .t-payments thead {
+        display: none;
+    }
+
+    .t-contracts tr.contract-row,
+    .t-rights tr,
+    .t-payments tr {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: .15rem .6rem;
+        padding: .85rem 0;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .t-contracts tr.contract-row td,
+    .t-rights td,
+    .t-payments td {
+        display: block;
+        padding: 0;
+        white-space: normal;
+        background: transparent;
+        border: 0;
+    }
+
+    .t-contracts tbody tr:last-child,
+    .t-rights tbody tr:last-child,
+    .t-payments tbody tr:last-child {
+        border-bottom: 0;
+    }
+
+    .t-rights tr.current-row {
+        padding-inline: .6rem;
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+        border-radius: 8px;
+    }
+
+    .t-contracts tr.group-row {
+        display: block;
+    }
+
+    .t-contracts tr.group-row td {
+        display: block;
+        padding: .6rem .75rem;
+        border-radius: 8px;
+    }
+
+    /* Contrats : employeur et heures / mission / dates, documents et net / actions */
+    .contract-row td:nth-child(1) {
+        order: 1;
+        flex: 1 1 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        font-weight: 600;
+    }
+
+    .contract-row td:nth-child(5) {
+        order: 2;
+        margin-left: auto;
+        font-weight: 600;
+    }
+
+    .contract-row td:nth-child(5)::after {
+        content: ' h';
+    }
+
+    .contract-row td:nth-child(2) {
+        order: 3;
+        flex-basis: 100%;
+        color: var(--muted);
+    }
+
+    .contract-row td:nth-child(3),
+    .contract-row td:nth-child(4) {
+        order: 4;
+        font-size: .85rem;
+        color: var(--muted);
+    }
+
+    .contract-row td:nth-child(4)::before {
+        content: '→ ';
+    }
+
+    .contract-row td:nth-child(8) {
+        order: 5;
+        font-size: .85rem;
+        color: var(--muted);
+    }
+
+    .contract-row td:nth-child(7) {
+        order: 6;
+        margin-left: auto;
+        font-weight: 500;
+    }
+
+    .contract-row td:nth-child(7)::before {
+        content: 'Net ';
+        color: var(--muted);
+        font-weight: 400;
+    }
+
+    .contract-row td:nth-child(6) {
+        display: none;
+    }
+
+    .contract-row td:nth-child(9) {
+        order: 7;
+        flex-basis: 100%;
+        margin-top: .25rem;
+    }
+
+    .contract-row td:nth-child(9) button {
+        padding-left: 0;
+    }
+
+    .contract-row td.none {
+        display: none;
+    }
+
+    /* Droits : période / ouverture, AJ nette et heures / action */
+    .t-rights td:nth-child(1) {
+        order: 1;
+        flex-basis: 100%;
+        font-weight: 600;
+    }
+
+    .t-rights td:nth-child(2) {
+        order: 2;
+        color: var(--muted);
+    }
+
+    .t-rights td:nth-child(3) {
+        order: 3;
+        margin-left: auto;
+    }
+
+    .t-rights td:nth-child(4) {
+        order: 4;
+        font-size: .85rem;
+        color: var(--muted);
+    }
+
+    .t-rights td:nth-child(4)::before {
+        content: 'Réf. ';
+    }
+
+    .t-rights td:nth-child(5) {
+        order: 5;
+        flex-basis: 100%;
+    }
+
+    /* Virements : mois et montant / date / action */
+    .t-payments td:nth-child(1) {
+        order: 1;
+        flex: 1 1 0;
+        min-width: 0;
+        font-weight: 600;
+    }
+
+    .t-payments td:nth-child(3) {
+        order: 2;
+        font-weight: 600;
+    }
+
+    .t-payments td:nth-child(2) {
+        order: 3;
+        flex-basis: 100%;
+        font-size: .85rem;
+        color: var(--muted);
+    }
+
+    .t-payments td:nth-child(2)::before {
+        content: 'Versé le ';
+    }
+
+    .t-payments td:nth-child(4) {
+        order: 4;
+        flex-basis: 100%;
+    }
+
+    .t-rights td:last-child button,
+    .t-payments td:last-child button {
+        padding-left: 0;
+    }
+
+    /* ----- Modales : plein écran, boutons toujours visibles ----- */
+    dialog {
+        width: 100%;
+        max-width: 100%;
+        height: 100dvh;
+        max-height: 100dvh;
+        margin: 0;
+        border-radius: 0;
+    }
+
+    dialog form {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 1rem 1rem 0;
+    }
+
+    dialog form .card-head {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        margin: -1rem -1rem .75rem;
+        padding: .75rem 1rem;
+        background: var(--surface);
+        border-bottom: 1px solid var(--line);
+    }
+
+    dialog form .row.full {
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        margin: 0 -1rem;
+        padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom));
+        background: var(--surface);
+        border-top: 1px solid var(--line);
+    }
+
+    dialog form.stack {
+        padding: 0;
+    }
+
+    /* ----- Calendrier : colonne des mois fixe ----- */
+    .cal .mn {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        background: var(--surface);
+    }
+
+    .cal-bar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}

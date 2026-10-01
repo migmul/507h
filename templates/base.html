@@ -2,19 +2,15 @@
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{% block title %}507h{% endblock %}</title>
     <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0c0d10">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f5f7">
+    <title>{% block title %}507h{% endblock %}</title>
     <script src="{{ url_for('static', filename='js/early.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-    {% if email_unverified %}
-    <div class="notice">
-        Ton adresse e-mail n'est pas encore vérifiée.
-        <a href="{{ url_for('account_page') }}">Vérifier mon adresse</a>
-    </div>
-    {% endif %}
 <body>
     {% block header %}
     {% set page = request.endpoint %}
@@ -22,15 +18,34 @@
         <div class="header-inner">
             <a class="brand" href="{{ url_for('dashboard') }}">507<span>h</span></a>
             <nav class="site-nav" aria-label="Navigation principale">
-                <a href="{{ url_for('dashboard') }}"{% if page == 'dashboard' %} aria-current="page"{% endif %}>Contrats</a>
-                <a href="{{ url_for('intermittence_page') }}"{% if page == 'intermittence_page' %} aria-current="page"{% endif %}>Intermittence</a>
-                <a href="{{ url_for('stats_page') }}"{% if page == 'stats_page' %} aria-current="page"{% endif %}>Statistiques</a>
-                <a href="{{ url_for('account_page') }}"{% if page == 'account_page' %} aria-current="page"{% endif %}>Compte</a>
+                <a href="{{ url_for('dashboard') }}"{% if page == 'dashboard' %} aria-current="page"{% endif %}>
+                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
+                    <span>Contrats</span>
+                </a>
+                <a href="{{ url_for('intermittence_page') }}"{% if page == 'intermittence_page' %} aria-current="page"{% endif %}>
+                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+                    <span>Intermittence</span>
+                </a>
+                <a href="{{ url_for('stats_page') }}"{% if page == 'stats_page' %} aria-current="page"{% endif %}>
+                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V4M19 20v-6"/></svg>
+                    <span>Statistiques</span>
+                </a>
+                <a href="{{ url_for('account_page') }}"{% if page == 'account_page' %} aria-current="page"{% endif %}>
+                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+                    <span>Compte</span>
+                </a>
             </nav>
             <button id="logout" class="ghost" type="button">Déconnexion</button>
         </div>
     </header>
     {% endblock %}
+
+    {% if email_unverified %}
+    <div class="notice">
+        Ton adresse e-mail n'est pas encore vérifiée.
+        <a href="{{ url_for('account_page') }}">Vérifier mon adresse</a>
+    </div>
+    {% endif %}
 
     {% block body %}{% endblock %}
 

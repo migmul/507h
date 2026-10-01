@@ -66,7 +66,12 @@ function hover(node, text) {
     node.addEventListener('mouseenter', (e) => showTip(e, text));
     node.addEventListener('mousemove', (e) => showTip(e, text));
     node.addEventListener('mouseleave', () => { tip.hidden = true; });
+    node.addEventListener('click', (e) => showTip(e, text));    // au toucher
 }
+
+document.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest('.hz, .seg, .cd')) tip.hidden = true;
+});
 
 const niceMax = (v) => {
     const p = Math.pow(10, Math.floor(Math.log10(v)));
@@ -92,7 +97,13 @@ function barChart(box, items, o) {
         box.replaceChildren(el('p', 'Aucune donnée sur la période.', 'muted'));
         return;
     }
-    const W = 760, H = 280, L = 52, R = 10, T = 14, B = 34;
+    const W = Math.max(300, Math.min(760, box.clientWidth || 760));
+    const narrow = W < 500;
+    const H = narrow ? 240 : 280;
+    const L = narrow ? 40 : 52;
+    const R = 8;
+    const T = 14;
+    const B = 34;
     const iw = W - L - R;
     const ih = H - T - B;
     const totals = items.map((it) => (
@@ -109,7 +120,7 @@ function barChart(box, items, o) {
         }
 
     const bw = iw / items.length;
-    const step = Math.ceil(items.length / 12);
+    const step = Math.ceil(items.length / Math.max(1, Math.floor(iw / 44)));
     const n = o.series.length;
     items.forEach((it, i) => {
         const gx = L + i * bw;
@@ -249,7 +260,7 @@ function renderCalendar() {
 
     for (let m = 0; m < 12; m++) {
         const name = new Date(Date.UTC(calYear, m, 1)).toLocaleDateString('fr-FR', { month: 'long', timeZone: 'UTC' });
-        cells.push(el('span', name, 'ml'));
+        cells.push(el('span', name, 'ml mn'));
         const len = new Date(Date.UTC(calYear, m + 1, 0)).getUTCDate();
         for (let d = 1; d <= 31; d++) {
             const cell = el('div', d <= len ? String(d) : '', 'cd');
@@ -401,4 +412,14 @@ $('#cal-next').onclick = () => { calYear++; renderCalendar(); };
 $('#cal-details').addEventListener('toggle', () => {
     if ($('#cal-details').open) renderCalendar();
 });
+
+let lastWidth = window.innerWidth;
+let resizeTimer;
+window.addEventListener('resize', () => {
+    if (window.innerWidth === lastWidth) return;    // ignore la barre d'adresse mobile qui apparaît ou disparaît
+    lastWidth = window.innerWidth;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (stats) render(); }, 150);
+});
+
 load().finally(() => Boot.ready());
