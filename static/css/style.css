@@ -207,6 +207,23 @@ a {
     }
 }
 
+/* Cartes en colonnes équilibrées, chacune à sa hauteur naturelle */
+.masonry {
+    column-count: 2;
+    column-gap: 1.25rem;
+}
+
+.masonry > .card {
+    margin-bottom: 1.25rem;
+    break-inside: avoid;
+}
+
+@media (max-width: 900px) {
+    .masonry {
+        column-count: 1;
+    }
+}
+
 .auth {
     max-width: 380px;
     margin: 12vh auto 0;
@@ -682,8 +699,21 @@ tbody tr.group-row td {
     border-radius: 4px;
 }
 
-.tappable {
-    cursor: pointer;
+/* Dernière colonne (boutons) : à la largeur du bouton, collée à droite */
+@media (min-width: 701px) {
+    .t-contracts td:last-child,
+    .t-rights td:last-child,
+    .t-payments td:last-child {
+        width: 1%;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .t-contracts td:last-child button:last-child,
+    .t-rights td:last-child button:last-child,
+    .t-payments td:last-child button:last-child {
+        margin-right: -.5rem;
+    }
 }
 
 .mobile-inline {
@@ -1508,6 +1538,10 @@ body {
 
     .tappable:active {
         background: var(--hover-strong);
+    }
+
+    .tappable {
+        cursor: pointer;
     }
 
     .t-rights tr.current-row {

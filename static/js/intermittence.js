@@ -89,7 +89,7 @@ function renderCurrent(o) {
 function tappable(tr, onEdit) {
     tr.classList.add('tappable');
     tr.addEventListener('click', (e) => {
-        if (!e.target.closest('button')) onEdit();
+        if (isMobile() && !e.target.closest('button')) onEdit();
     });
 }
 

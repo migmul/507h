@@ -222,7 +222,7 @@ function contractRow(c) {
     tr.append(actions);
     tr.classList.add('tappable');
     tr.addEventListener('click', (e) => {
-        if (!e.target.closest('button')) openDialog(c);
+        if (isMobile() && !e.target.closest('button')) openDialog(c);
     });
     return tr;
 }

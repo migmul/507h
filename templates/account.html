@@ -2,7 +2,7 @@
 {% block title %}Mon compte – 507h{% endblock %}
 {% block body %}
 <main class="container">
-    <div class="cols-2 stretch">
+    <div class="masonry">
         <section class="card">
             <h2>Mon compte</h2>
             <p>Adresse e-mail : <strong id="acc-email">…</strong></p>
@@ -72,8 +72,8 @@
             <p class="muted">Déconnecte tous les autres appareils connectés à ton compte.</p>
             <p class="msg" id="misc-msg" role="alert"></p>
             <div class="row">
-                <button class="ghost mobile-only" data-logout type="button">Se déconnecter</button>
                 <button class="ghost" id="logout-all" type="button">Se déconnecter partout</button>
+                <button class="ghost mobile-only" data-logout type="button">Se déconnecter</button>
             </div>
         </section>
 

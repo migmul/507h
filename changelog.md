@@ -3,6 +3,15 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.15.3] - 2026-10-01
+
+### Modifié
+- Les lignes de contrats, de droits et de virements ne sont cliquables que sur mobile. Sur ordinateur, seul le bouton « Modifier » ouvre la fenêtre de modification, et le curseur ne change plus au survol d'une ligne.
+- Page Compte : les cartes sont réparties en deux colonnes équilibrées (flux en colonnes) au lieu d'une grille en rangées, ce qui supprime l'espace vide dans les cartes les moins hautes. Ordre de lecture inchangé : Mon compte, Apparence, e-mail, mot de passe, puis double authentification, sessions, données et suppression.
+
+### Corrigé
+- Ordinateur : le bouton « Modifier » des tableaux (contrats, droits, virements) est désormais collé au bord droit de la carte au lieu de flotter au milieu de la dernière colonne.
+
 ## [0.15.2] - 2026-10-01
 
 ### Modifié
