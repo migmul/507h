@@ -3,6 +3,19 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.15.1] - 2026-10-01
+
+### Corrigé
+- Liste des contrats sur mobile : le brut et les cellules vides (tiret du document) s'affichaient malgré leur masquage, car une règle plus spécifique les remettait en bloc. Elles sont de nouveau masquées et la carte reprend l'ordre prévu (employeur et heures, mission, dates, documents, net, actions).
+- Calendrier : la colonne des mois laissait voir des bandes de cellules entre les lignes pendant le défilement horizontal. Les lignes sont désormais jointives et la colonne des mois a un fond plein.
+- Calendrier mobile : noms de mois abrégés (janv., févr., etc.) et colonne plus étroite.
+- Symboles du calendrier : le carré de la fin de contrat retenue s'affichait en émoji noir sur iOS ; il utilise désormais un carré texte, et le triangle du début d'indemnisation est forcé en mode texte.
+- Le survol des lignes de tableau n'est plus appliqué sur écran tactile (il restait « collé » après un appui).
+
+### Modifié
+- La déconnexion quitte l'en-tête sur mobile et passe dans la carte « Sessions » de la page Compte (bouton « Se déconnecter », visible sur mobile uniquement). Sur ordinateur, elle reste dans l'en-tête.
+- La déconnexion est gérée par l'attribut `data-logout`, ce qui permet plusieurs boutons.
+
 ## [0.15] - 2026-10-01
 
 ### Ajouté

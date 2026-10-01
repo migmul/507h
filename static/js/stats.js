@@ -259,7 +259,9 @@ function renderCalendar() {
     const todayIso = iso(new Date(Date.now() - new Date().getTimezoneOffset() * 60000));
 
     for (let m = 0; m < 12; m++) {
-        const name = new Date(Date.UTC(calYear, m, 1)).toLocaleDateString('fr-FR', { month: 'long', timeZone: 'UTC' });
+        const short = window.innerWidth <= 700;
+        const name = new Date(Date.UTC(calYear, m, 1)).toLocaleDateString(
+            'fr-FR', { month: short ? 'short' : 'long', timeZone: 'UTC' });
         cells.push(el('span', name, 'ml mn'));
         const len = new Date(Date.UTC(calYear, m + 1, 0)).getUTCDate();
         for (let d = 1; d <= 31; d++) {
