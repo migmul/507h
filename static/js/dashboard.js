@@ -226,4 +226,4 @@ form.addEventListener('submit', async (e) => {
 });
 
 renderHead();
-load();
+load().finally(() => Boot.ready());

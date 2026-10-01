@@ -111,4 +111,4 @@ themeButtons.forEach((b) => {
 
 showTheme();
 
-loadInfo();
+loadInfo().finally(() => Boot.ready());

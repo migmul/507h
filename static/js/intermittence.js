@@ -187,4 +187,4 @@ $('#edit-current').onclick = () => {
   const r = state.rights.find((x) => x.id === state.overview.right_id);
   if (r) openRight(r);
 };
-load();
+load().finally(() => Boot.ready());

@@ -3,6 +3,16 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.10.2] - 2026-10-01
+
+### Corrigé
+- Clignotement au chargement des pages : le contenu (hors en-tête) et le pied de page restent masqués jusqu'au premier rendu des données, puis apparaissent par un court fondu. Plus de cartes vides, de textes provisoires ni de saut du pied de page.
+- Les barres de progression ne s'animent plus depuis zéro au premier affichage.
+
+### Modifié
+- `theme.js` devient `early.js` : script exécuté dans `<head>` qui gère le thème (`Theme`) et l'état de chargement (`Boot.ready()`).
+- Chaque page appelle `Boot.ready()` une fois son premier rendu terminé. Un garde-fou de 3 secondes affiche la page même si un script échoue.
+
 ## [0.10.1] - 2026-10-01
 
 ### Modifié

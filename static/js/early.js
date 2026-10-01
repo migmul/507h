@@ -1,4 +1,20 @@
+/* Exécuté dans <head>, avant l'affichage de la page */
 (() => {
+    const root = document.documentElement;
+
+    /* ---------- Chargement : contenu masqué jusqu'au premier rendu ---------- */
+    root.classList.add('booting');
+    let done = false;
+
+    const ready = () => {
+        if (done) return;
+        done = true;
+        root.classList.remove('booting');
+    };
+
+    setTimeout(ready, 3000);    // garde-fou si un script échoue
+
+    /* ---------- Thème ---------- */
     const KEY = 'theme';
     const CHOICES = ['auto', 'light', 'dark'];
 
@@ -13,9 +29,9 @@
 
     function apply(t) {
         if (t === 'auto') {
-            delete document.documentElement.dataset.theme;
+            delete root.dataset.theme;
         } else {
-            document.documentElement.dataset.theme = t;
+            root.dataset.theme = t;
         }
     }
 
@@ -37,5 +53,7 @@
     window.addEventListener('storage', (e) => {
         if (e.key === KEY || e.key === null) apply(get());
     });
+
+    window.Boot = { ready };
     window.Theme = { get, set };
 })();

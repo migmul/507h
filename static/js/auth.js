@@ -36,3 +36,5 @@ $('#auth-form').addEventListener('submit', async (e) => {
     const data = await res.json().catch(() => ({}));
     $('#auth-error').textContent = data.error || 'Erreur inattendue';
 });
+
+Boot.ready();

@@ -954,3 +954,23 @@ dialog form .row {
 .sw.c2 {
     background: var(--accent);
 }
+
+/* ==========================================================================
+   13. Chargement
+   Évite le clignotement : le contenu reste masqué tant que la page n'a pas
+   fait son premier rendu (classe posée par early.js, retirée par Boot.ready()).
+   ========================================================================== */
+
+main,
+.footer {
+    transition: opacity .18s ease;
+}
+
+.booting main,
+.booting .footer {
+    opacity: 0;
+}
+
+.booting .progress > div {
+    transition: none;
+}

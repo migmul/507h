@@ -281,7 +281,7 @@ function render() {
     $('#stats-note').textContent =
         `Période : du ${fdate(st.period.first)} au ${fdate(st.period.last)}. ` +
         "Heures et salaires répartis au prorata des jours de chaque contrat, jusqu'à aujourd'hui. " +
-        "L'ARE est rattachée au mois concerné du virement. " +
+        // "L'ARE est rattachée au mois concerné du virement. " +
         'Les mois incomplets (mois en cours, premier mois partiel) sont exclus des moyennes et médianes.' +
         (st.no_net ? ` ${st.no_net} contrat(s) sans net sont exclus des revenus.` : '');
 
@@ -379,4 +379,4 @@ $('#period').onchange = load;
 $('#dep-mode').onchange = renderDependency;
 $('#cal-prev').onclick = () => { calYear--; renderCalendar(); };
 $('#cal-next').onclick = () => { calYear++; renderCalendar(); };
-load();
+load().finally(() => Boot.ready());
