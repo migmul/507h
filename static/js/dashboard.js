@@ -78,6 +78,12 @@ function findDuplicate(v, excludeId) {
     return contracts.find((c) => String(c.id) !== String(excludeId) && dupKey(c) === key) || null;
 }
 
+// Suggestion affichée dans le champ « Jours travaillés » : heures / 8
+function updateDaysHint() {
+    const hours = Number(String(form.elements.hours.value).replace(',', '.'));
+    form.elements.days_worked.placeholder = hours > 0 ? `Estimé : ${nf1.format(hours / 8)}` : 'Estimé';
+}
+
 function checkDup() {
     const v = Object.fromEntries(new FormData(form));
     const match = findDuplicate(v, v.id);
@@ -327,6 +333,7 @@ async function load() {
     renderEmployers();
     renderJobTitles();
     await loadSummary();
+    await loadLimits();
 }
 
 /* ---------- Employeurs (saisie rapide) ---------- */
@@ -376,7 +383,7 @@ function openDialog(c) {
     $('#form-error').textContent = '';
     form.elements.id.value = c ? c.id : '';
     if (c) {
-        for (const k of ['employer', 'job_title', 'mission', 'hours', 'start_date', 'end_date', 'gross', 'net', 'comment']) {
+        for (const k of ['employer', 'job_title', 'mission', 'hours', 'days_worked', 'start_date', 'end_date', 'gross', 'net', 'comment']) {
             form.elements[k].value = c[k] ?? '';
         }
     }
@@ -384,6 +391,7 @@ function openDialog(c) {
     renderDocs();
     $('#form-title').textContent = c ? 'Modifier le contrat' : 'Ajouter un contrat';
     $('#contract-delete').hidden = !c;
+    updateDaysHint();
     checkDup();
     dialog.showModal();
 }
@@ -400,7 +408,10 @@ const closeDialog = () => dialog.close();
 $('#add-btn').onclick = () => openDialog(null);
 $('#cancel').onclick = closeDialog;
 $('#close-dialog').onclick = closeDialog;
-form.addEventListener('input', checkDup);
+form.addEventListener('input', () => {
+    checkDup();
+    updateDaysHint();
+});
 
 // Fermeture au clic sur le fond : le clic doit commencer ET finir sur le fond
 let downOnBackdrop = false;
@@ -416,7 +427,7 @@ form.addEventListener('submit', async (e) => {
     err.textContent = '';
     const f = new FormData(form);
     const payload = Object.fromEntries(
-        ['employer', 'job_title', 'mission', 'hours', 'start_date', 'end_date', 'gross', 'net', 'comment']
+        ['employer', 'job_title', 'mission', 'hours', 'days_worked', 'start_date', 'end_date', 'gross', 'net', 'comment']
             .map((k) => [k, f.get(k)]));
     const files = ['contrat', 'aem', 'bulletin']
         .map((k) => [k, f.get('file_' + k)])
@@ -477,6 +488,108 @@ $('#sort-mobile').addEventListener('change', (e) => {
     renderHead();
     render();
 });
+
+/* ---------- Plafonds annuels ---------- */
+let limitYear = new Date().getFullYear();
+const limitDialog = $('#limit-dialog');
+const limitForm = $('#limit-form');
+
+async function loadLimits() {
+    renderLimits(await api(`/api/limits?year=${limitYear}`));
+}
+
+function renderLimits(d) {
+    limitYear = d.year;
+    $('#limit-year').textContent = d.year;
+    $('#limits-empty').hidden = d.rules.length > 0;
+    $('#limits-list').replaceChildren(...d.rules.map(limitBlock));
+    // Résumé affiché sur la carte repliée
+    const prefix = String(d.year) === THIS_YEAR ? '' : `${d.year} : `;
+    const sum = $('#limits-sum');
+    sum.textContent = d.rules.length
+        ? prefix + d.rules.map((r) => `${r.label} ${nf1.format(r.total)} / ${r.max_days} j`).join(' · ')
+        : '';
+    sum.classList.toggle('over', d.rules.some((r) => r.over));
+}
+
+function limitBlock(r) {
+    const box = el('div', undefined, 'limit tappable');
+    box.addEventListener('click', () => openLimit(r));
+
+    const head = el('div', undefined, 'limit-head');
+    head.append(
+        el('strong', r.label),
+        el('span', `${nf1.format(r.total)} / ${r.max_days} j`, r.over ? 'over' : ''));
+
+    const bar = el('div', undefined, r.over ? 'progress multi over' : 'progress multi');
+    const done = el('div');
+    const planned = el('div', undefined, 'planned');
+    const donePct = Math.min(100, (r.done / r.max_days) * 100);
+    done.style.width = donePct + '%';
+    planned.style.width = Math.min(100 - donePct, (r.planned / r.max_days) * 100) + '%';
+    bar.append(done, planned);
+
+    const parts = [`${nf1.format(r.done)} effectué(s)`];
+    if (r.planned > 0) parts.push(`${nf1.format(r.planned)} prévu(s)`);
+    parts.push(r.over ? `dépassé de ${nf1.format(-r.remaining)} j` : `reste ${nf1.format(r.remaining)} j`);
+    const lines = [el('p', parts.join(' · '), 'muted small')];
+    if (r.per_week) {
+        lines.push(el('p', `soit ${nf1.format(r.per_week)} j par semaine d'ici le 31/12`, 'muted small'));
+    }
+    if (r.estimated) {
+        lines.push(el('p', `dont ${r.estimated} contrat(s) estimé(s) à 8 h par jour`, 'muted small'));
+    }
+    box.append(head, bar, ...lines);
+    return box;
+}
+
+function openLimit(r) {
+    limitForm.reset();
+    limitForm.querySelector('[data-error]').textContent = '';
+    limitForm.elements.id.value = r ? r.id : '';
+    if (r) {
+        limitForm.elements.label.value = r.label;
+        limitForm.elements.employer_match.value = r.employer_match;
+        limitForm.elements.max_days.value = r.max_days;
+    }
+    $('#limit-delete').hidden = !r;
+    limitDialog.querySelector('h2').textContent = r ? 'Modifier le plafond' : 'Ajouter un plafond';
+    limitDialog.showModal();
+}
+
+limitDialog.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => limitDialog.close(); });
+let limitDown = false;
+limitDialog.addEventListener('mousedown', (e) => { limitDown = e.target === limitDialog; });
+limitDialog.addEventListener('click', (e) => {
+    if (e.target === limitDialog && limitDown) limitDialog.close();
+    limitDown = false;
+});
+
+limitForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(limitForm));
+    const id = f.id;
+    delete f.id;
+    try {
+        await api(id ? `/api/limits/${id}` : '/api/limits', id ? 'PUT' : 'POST', f);
+        limitDialog.close();
+        loadLimits();
+    } catch (ex) {
+        limitForm.querySelector('[data-error]').textContent = ex.message;
+    }
+});
+
+$('#limit-delete').onclick = async () => {
+    const id = limitForm.elements.id.value;
+    if (!id || !confirm('Supprimer ce plafond ?')) return;
+    await api(`/api/limits/${id}`, 'DELETE');
+    limitDialog.close();
+    loadLimits();
+};
+
+$('#limit-add').onclick = () => openLimit(null);
+$('#limit-prev').onclick = () => { limitYear--; loadLimits(); };
+$('#limit-next').onclick = () => { limitYear++; loadLimits(); };
 
 renderHead();
 load().finally(() => Boot.ready());

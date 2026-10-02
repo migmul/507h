@@ -3,6 +3,19 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.17] - 2026-10-02
+
+### Ajouté
+- Champ « Jours travaillés » sur les contrats (facultatif). S'il est vide, le nombre de jours vaut les heures divisées par 8 ; l'estimation est proposée en suggestion pendant la saisie. Le champ est exporté et importé.
+- Plafonds annuels configurables : un nom, un texte à retrouver dans le nom de l'employeur (sans tenir compte des accents ni de la casse) et un nombre de jours maximum par année civile. Jusqu'à 10 plafonds par compte, créés, modifiés et supprimés depuis la page Contrats ; exportés et importés.
+- Carte « Plafonds annuels » sur la page Contrats, repliée par défaut. Fermée, elle affiche un résumé d'une ligne (par exemple « France Télévisions 52 / 80 j »), en rouge en cas de dépassement.
+- Dépliée, pour chaque plafond : barre à deux teintes (jours effectués et jours prévus), jours restants ou dépassement, jours par semaine possibles d'ici le 31 décembre (année en cours) et nombre de contrats dont les jours sont estimés. Navigation d'une année à l'autre.
+- Les contrats à cheval sur deux années sont répartis au prorata des jours entre les deux années civiles.
+- Migration automatique : colonne `days_worked` sur `contracts`, table `day_limits`.
+
+### Modifié
+- Le plafond est une jauge : il n'empêche jamais d'enregistrer un contrat et n'affiche aucune alerte dans la fenêtre de saisie.
+
 ## [0.16.1] - 2026-10-02
 
 ### Corrigé

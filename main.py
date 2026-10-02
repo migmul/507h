@@ -14,6 +14,7 @@ import ssl
 import struct
 import threading
 import segno
+import unicodedata
 from dotenv import load_dotenv
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
@@ -118,6 +119,7 @@ CREATE TABLE IF NOT EXISTS contracts (
   net_cents INTEGER CHECK (net_cents IS NULL OR net_cents >= 0),
   comment TEXT NOT NULL DEFAULT '',
   job_title TEXT NOT NULL DEFAULT '',
+  days_worked REAL CHECK (days_worked IS NULL OR days_worked > 0),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_user_end ON contracts(user_id, end_date);
@@ -157,6 +159,14 @@ CREATE TABLE IF NOT EXISTS payments (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, paid_on);
+CREATE TABLE IF NOT EXISTS day_limits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    employer_match TEXT NOT NULL,
+    max_days INTEGER NOT NULL CHECK (max_days BETWEEN 1 AND 366)
+);
+CREATE INDEX IF NOT EXISTS idx_limits_user ON day_limits(user_id);
 """
 
 
@@ -203,6 +213,9 @@ def migrate():
         migrate_rights(c)
         if "job_title" not in {r[1] for r in c.execute("PRAGMA table_info(contracts)")}:
             c.execute("ALTER TABLE contracts ADD COLUMN job_title TEXT NOT NULL DEFAULT ''")
+        if "days_worked" not in {r[1] for r in c.execute("PRAGMA table_info(contracts)")}:
+            c.execute("ALTER TABLE contracts ADD COLUMN days_worked REAL "
+                      "CHECK (days_worked IS NULL OR days_worked > 0)")
 
 def migrate_rights(c):
     cols = {r[1] for r in c.execute("PRAGMA table_info(are_rights)")}
@@ -552,6 +565,16 @@ def parse_contract(data):
         raise ValueError("Nombre d'heures invalide")
     if not (0 < hours <= 1000):
         raise ValueError("Heures hors limites")
+    raw_days = data.get("days_worked")
+    if raw_days in (None, ""):
+        days_worked = None
+    else:
+        try:
+            days_worked = float(str(raw_days).replace(",", "."))
+        except ValueError:
+            raise ValueError("Jours travaillés invalides")
+        if not (0 < days_worked <= 366):
+            raise ValueError("Jours travaillés : entre 0 et 366")
     try:
         start = date.fromisoformat(str(data.get("start_date")))
         end = date.fromisoformat(str(data.get("end_date")))
@@ -563,7 +586,7 @@ def parse_contract(data):
     if gross is not None and net is not None and net > gross:
         raise ValueError("Le net ne peut pas dépasser le brut")
     return (employer, mission, hours, start.isoformat(), end.isoformat(),
-            gross, net, comment, job_title)
+            gross, net, comment, job_title, days_worked)
 
 
 def doc_to_dict(r):
@@ -575,7 +598,8 @@ def row_to_dict(r, docs):
                 hours=r["hours"], start_date=r["start_date"], end_date=r["end_date"],
                 gross=None if r["gross_cents"] is None else r["gross_cents"] / 100,
                 net=None if r["net_cents"] is None else r["net_cents"] / 100,
-                comment=r["comment"], job_title=r["job_title"], documents=docs)
+                comment=r["comment"], job_title=r["job_title"],
+                days_worked=r["days_worked"], documents=docs)
 
 
 def user_dir(uid):
@@ -729,8 +753,9 @@ def add_contract():
         return err(str(e))
     db = get_db()
     cur = db.execute(
-        "INSERT INTO contracts(user_id, employer, mission, hours, start_date,"
-        " end_date, gross_cents, net_cents, comment, job_title) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO contracts(user_id, employer, mission, hours, start_date, end_date,"
+        " gross_cents, net_cents, comment, job_title, days_worked)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (session["uid"], *vals))
     db.commit()
     return jsonify(id=cur.lastrowid), 201
@@ -745,8 +770,8 @@ def edit_contract(cid):
         return err(str(e))
     db = get_db()
     cur = db.execute(
-        "UPDATE contracts SET employer=?, mission=?, hours=?, start_date=?,"
-        " end_date=?, gross_cents=?, net_cents=?, comment=?, job_title=?"
+        "UPDATE contracts SET employer=?, mission=?, hours=?, start_date=?, end_date=?,"
+        " gross_cents=?, net_cents=?, comment=?, job_title=?, days_worked=?"
         " WHERE id=? AND user_id=?",
         (*vals, cid, session["uid"]))
     db.commit()
@@ -940,16 +965,19 @@ def import_data():
     if raw_rights is None and data.get("droit_are"):       # ancien format (0.4 à 0.6)
         raw_rights = [data["droit_are"]]
     raw_pay = data.get("virements", [])
-    for name, lst in (("contracts", items), ("droits_are", raw_rights or []), ("virements", raw_pay)):
+    raw_limits = data.get("plafonds", [])
+    for name, lst in (("contracts", items), ("droits_are", raw_rights or []),
+                      ("virements", raw_pay), ("plafonds", raw_limits)):
         if not isinstance(lst, list):
             return err(f"Format inattendu : « {name} » doit être une liste")
     if len(items) > MAX_IMPORT_CONTRACTS or len(raw_pay) > MAX_IMPORT_CONTRACTS:
         return err(f"{MAX_IMPORT_CONTRACTS} éléments maximum par liste")
 
-    errors, contracts, rights, pays = [], [], [], []
+    errors, contracts, rights, pays, limits = [], [], [], [], []
     for label, src, dst, fn in (("Contrat", items, contracts, parse_contract),
                                 ("Droit", raw_rights or [], rights, parse_rights),
-                                ("Virement", raw_pay, pays, parse_payment)):
+                                ("Virement", raw_pay, pays, parse_payment),
+                                ("Plafond", raw_limits, limits, parse_limit)):
         for i, it in enumerate(src, 1):
             try:
                 dst.append(fn(it))
@@ -957,7 +985,7 @@ def import_data():
                 errors.append(f"{label} n°{i} : {e}")
     if errors:
         return jsonify(error="Import refusé, rien n'a été modifié", details=errors[:10]), 400
-    if not (contracts or rights or pays):
+    if not (contracts or rights or pays or limits):
         return err("Aucune donnée à importer dans ce fichier")
 
     db, uid = get_db(), session["uid"]
@@ -968,41 +996,63 @@ def import_data():
         "SELECT annexe, fct_date, start_date FROM rights WHERE user_id=?", (uid,))}
     seen_p = {(r["paid_on"], r["month_covered"], r["amount_cents"]) for r in db.execute(
         "SELECT paid_on, month_covered, amount_cents FROM payments WHERE user_id=?", (uid,))}
-    new_c, new_r, new_p, dup = [], [], [], 0
-    for v in contracts:     # (employer, mission, hours, start, end, gross, net, comment)
+    seen_l = {(r["label"].lower(), r["employer_match"].lower()) for r in db.execute(
+        "SELECT label, employer_match FROM day_limits WHERE user_id=?", (uid,))}
+    new_c, new_r, new_p, new_l, dup = [], [], [], [], 0
+    for v in contracts:     # (employer, mission, hours, start, end, gross, net, comment, job, days)
         k = (v[0].lower(), v[1], v[3], v[4], v[2])
         if k in seen_c:
             dup += 1
         else:
-            seen_c.add(k); new_c.append(v)
+            seen_c.add(k)
+            new_c.append(v)
     for v in rights:        # (annexe, fct, start, da, aj, opening, note)
         k = (v[0], v[1], v[2])
         if k in seen_r:
             dup += 1
         else:
-            seen_r.add(k); new_r.append(v)
+            seen_r.add(k)
+            new_r.append(v)
     for v in pays:          # (paid_on, month, amount, days, note)
         k = (v[0], v[1], v[2])
         if k in seen_p:
             dup += 1
         else:
-            seen_p.add(k); new_p.append(v)
-    n_r = db.execute("SELECT COUNT(*) FROM rights WHERE user_id=?", (uid,)).fetchone()[0]
-    n_p = db.execute("SELECT COUNT(*) FROM payments WHERE user_id=?", (uid,)).fetchone()[0]
-    if n_r + len(new_r) > MAX_RIGHTS or n_p + len(new_p) > MAX_PAYMENTS:
-        return err("Limite de droits ou de virements dépassée")
+            seen_p.add(k)
+            new_p.append(v)
+    for v in limits:        # (label, match, max_days)
+        k = (v[0].lower(), v[1].lower())
+        if k in seen_l:
+            dup += 1
+        else:
+            seen_l.add(k)
+            new_l.append(v)
+    counts = {
+        "rights": (db.execute("SELECT COUNT(*) FROM rights WHERE user_id=?", (uid,)).fetchone()[0],
+                   len(new_r), MAX_RIGHTS),
+        "payments": (db.execute("SELECT COUNT(*) FROM payments WHERE user_id=?", (uid,)).fetchone()[0],
+                     len(new_p), MAX_PAYMENTS),
+        "limits": (db.execute("SELECT COUNT(*) FROM day_limits WHERE user_id=?", (uid,)).fetchone()[0],
+                   len(new_l), MAX_LIMITS),
+    }
+    if any(have + new > cap for have, new, cap in counts.values()):
+        return err("Limite de droits, de virements ou de plafonds dépassée")
     try:
         db.executemany(
-            "INSERT INTO contracts(user_id, employer, mission, hours, start_date,"
-            " end_date, gross_cents, net_cents, comment, job_title) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO contracts(user_id, employer, mission, hours, start_date, end_date,"
+            " gross_cents, net_cents, comment, job_title, days_worked)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             [(uid, *v) for v in new_c])
         db.executemany(RIGHT_INSERT, [(uid, *v) for v in new_r])
         db.executemany(PAYMENT_INSERT, [(uid, *v) for v in new_p])
+        db.executemany("INSERT INTO day_limits(user_id, label, employer_match, max_days)"
+                       " VALUES (?,?,?,?)", [(uid, *v) for v in new_l])
         db.commit()
     except sqlite3.Error:
         db.rollback()
         return err("Erreur lors de l'import, rien n'a été modifié", 500)
-    return jsonify(added=len(new_c), rights=len(new_r), payments=len(new_p), duplicates=dup)
+    return jsonify(added=len(new_c), rights=len(new_r), payments=len(new_p),
+                   limits=len(new_l), duplicates=dup)
 
 @app.get("/api/account/export")
 @login_required
@@ -1025,6 +1075,10 @@ def export_account():
                  for x in rights_history(db, uid)],
              "virements": [{k: v for k, v in p.items() if k != "id"}
                            for p in payments_list(db, uid)],
+             "plafonds": [{"label": r["label"], "employer_match": r["employer_match"],
+                           "max_days": r["max_days"]}
+                          for r in db.execute("SELECT * FROM day_limits WHERE user_id=? ORDER BY id",
+                                              (uid,))],
              "contracts": contracts}, ensure_ascii=False, indent=2))
         for d in docs:
             try:
@@ -1729,6 +1783,132 @@ def twofa_recovery():
     codes = new_recovery_codes(db, uid)
     db.commit()
     return jsonify(recovery_codes=codes)
+
+# ---------- Plafonds annuels de jours travaillés ----------
+HOURS_PER_DAY = 8
+MAX_LIMITS = 10
+
+
+def fold_text(s):
+    s = unicodedata.normalize("NFD", str(s or ""))
+    return "".join(ch for ch in s if not unicodedata.combining(ch)).lower().strip()
+
+
+def contract_days(hours, days_worked):
+    """Jours d'un contrat : valeur saisie, sinon heures / 8. Retourne (jours, estimé)."""
+    if days_worked is not None:
+        return float(days_worked), False
+    return hours / HOURS_PER_DAY, True
+
+
+def limit_usage(db, uid, rule, year, today):
+    y0, y1 = date(year, 1, 1), date(year, 12, 31)
+    match = fold_text(rule["employer_match"])
+    done = planned = 0.0
+    n = estimated = 0
+    rows = db.execute(
+        "SELECT employer, hours, start_date, end_date, days_worked FROM contracts"
+        " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
+        (uid, y0.isoformat(), y1.isoformat()))
+    for r in rows:
+        if match not in fold_text(r["employer"]):
+            continue
+        s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
+        days, est = contract_days(r["hours"], r["days_worked"])
+        span = (e - s).days + 1
+        lo, hi = max(s, y0), min(e, y1)
+        in_year = (hi - lo).days + 1
+        cut = min(hi, today)
+        past = (cut - lo).days + 1 if cut >= lo else 0
+        done += days * past / span          # répartition au prorata des jours du contrat
+        planned += days * (in_year - past) / span
+        n += 1
+        estimated += est
+    total = done + planned
+    remaining = rule["max_days"] - total
+    per_week = None
+    if year == today.year and remaining > 0:
+        days_left = (y1 - today).days
+        if days_left > 0:
+            per_week = round(remaining / (days_left / 7), 1)
+    return {
+        "id": rule["id"], "label": rule["label"], "employer_match": rule["employer_match"],
+        "max_days": rule["max_days"], "done": round(done, 1), "planned": round(planned, 1),
+        "total": round(total, 1), "remaining": round(remaining, 1),
+        "over": round(total, 1) > rule["max_days"], "per_week": per_week,
+        "estimated": estimated, "contracts": n,
+    }
+
+
+def parse_limit(d):
+    if not isinstance(d, dict):
+        raise ValueError("Données invalides")
+    label = " ".join(str(d.get("label", "")).split())
+    match = " ".join(str(d.get("employer_match", "")).split())
+    if not label or len(label) > 60:
+        raise ValueError("Nom requis (60 caractères max)")
+    if not match or len(match) > 80:
+        raise ValueError("Texte de l'employeur requis (80 caractères max)")
+    try:
+        max_days = int(d.get("max_days") or 80)
+    except (TypeError, ValueError):
+        raise ValueError("Nombre de jours invalide")
+    if not 1 <= max_days <= 366:
+        raise ValueError("Jours maximum : de 1 à 366")
+    return (label, match, max_days)
+
+
+@app.get("/api/limits")
+@login_required
+def list_limits():
+    db, uid = get_db(), session["uid"]
+    today = date.today()
+    try:
+        year = int(request.args.get("year", today.year))
+    except ValueError:
+        year = today.year
+    year = min(max(year, 2000), 2100)
+    rules = db.execute("SELECT * FROM day_limits WHERE user_id=? ORDER BY id", (uid,)).fetchall()
+    return jsonify(year=year, rules=[limit_usage(db, uid, r, year, today) for r in rules])
+
+
+@app.post("/api/limits")
+@login_required
+def add_limit():
+    try:
+        vals = parse_limit(request.get_json(silent=True))
+    except ValueError as e:
+        return err(str(e))
+    db, uid = get_db(), session["uid"]
+    if db.execute("SELECT COUNT(*) FROM day_limits WHERE user_id=?", (uid,)).fetchone()[0] >= MAX_LIMITS:
+        return err(f"{MAX_LIMITS} plafonds maximum")
+    cur = db.execute("INSERT INTO day_limits(user_id, label, employer_match, max_days)"
+                     " VALUES (?,?,?,?)", (uid, *vals))
+    db.commit()
+    return jsonify(id=cur.lastrowid), 201
+
+
+@app.put("/api/limits/<int:lid>")
+@login_required
+def edit_limit(lid):
+    try:
+        vals = parse_limit(request.get_json(silent=True))
+    except ValueError as e:
+        return err(str(e))
+    db = get_db()
+    cur = db.execute("UPDATE day_limits SET label=?, employer_match=?, max_days=?"
+                     " WHERE id=? AND user_id=?", (*vals, lid, session["uid"]))
+    db.commit()
+    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
+
+
+@app.delete("/api/limits/<int:lid>")
+@login_required
+def delete_limit(lid):
+    db = get_db()
+    cur = db.execute("DELETE FROM day_limits WHERE id=? AND user_id=?", (lid, session["uid"]))
+    db.commit()
+    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", debug=os.environ.get("DEV") == "1", port=5007)

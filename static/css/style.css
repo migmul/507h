@@ -1063,6 +1063,84 @@ details.fold {
     color: var(--ok);
 }
 
+/* Carte repliable avec résumé sur la ligne du titre */
+details.fold > summary.has-sum {
+    display: flex;
+    align-items: baseline;
+}
+
+.fold-sum {
+    margin-left: auto;
+    padding-left: 1rem;
+    font-size: .85rem;
+    font-weight: 400;
+    color: var(--muted);
+    text-align: right;
+}
+
+.fold-sum.over {
+    color: var(--danger);
+}
+
+/* Plafonds annuels */
+.limits-bar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: .5rem;
+    margin-bottom: .5rem;
+}
+
+.limit {
+    padding: .7rem 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.limit:last-child {
+    border-bottom: 0;
+}
+
+.limit-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.limit-head .over {
+    font-weight: 600;
+    color: var(--danger);
+}
+
+.limit .progress {
+    margin: .4rem 0;
+}
+
+.limit p {
+    margin: .15rem 0 0;
+}
+
+/* Barre à deux teintes : effectués puis prévus */
+.progress.multi {
+    display: flex;
+}
+
+.progress.multi > div {
+    border-radius: 0;
+}
+
+.progress.multi > .planned {
+    background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.progress.over > div {
+    background: var(--danger);
+}
+
+.progress.over > .planned {
+    background: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
 /* ==========================================================================
    10. Modales
    ========================================================================== */
