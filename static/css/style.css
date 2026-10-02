@@ -964,12 +964,21 @@ details.more summary::-webkit-details-marker {
     display: none;
 }
 
-details.more summary::before {
-    content: '▸ ';
+/* Chevron dessiné en CSS : pivote à l'ouverture */
+details.more > summary::before {
+    content: '';
+    display: inline-block;
+    width: .45em;
+    height: .45em;
+    margin-right: .7em;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform .15s;
 }
 
-details.more[open] summary::before {
-    content: '▾ ';
+details.more[open] > summary::before {
+    transform: rotate(45deg);
 }
 
 details.more summary:hover {
@@ -1066,7 +1075,11 @@ details.fold {
 /* Carte repliable avec résumé sur la ligne du titre */
 details.fold > summary.has-sum {
     display: flex;
-    align-items: baseline;
+    align-items: center;
+}
+
+details[open] > summary .fold-sum {
+    display: none;
 }
 
 .fold-sum {
@@ -1120,25 +1133,19 @@ details.fold > summary.has-sum {
     margin: .15rem 0 0;
 }
 
-/* Barre à deux teintes : effectués puis prévus */
-.progress.multi {
-    display: flex;
-}
-
+/* Barre des plafonds : un seul remplissage, effectué (plein) puis prévu (clair) */
 .progress.multi > div {
-    border-radius: 0;
-}
-
-.progress.multi > .planned {
-    background: color-mix(in srgb, var(--accent) 40%, transparent);
+    background: linear-gradient(
+        to right,
+        var(--accent) var(--done, 100%),
+        color-mix(in srgb, var(--accent) 40%, transparent) var(--done, 100%));
 }
 
 .progress.over > div {
-    background: var(--danger);
-}
-
-.progress.over > .planned {
-    background: color-mix(in srgb, var(--danger) 40%, transparent);
+    background: linear-gradient(
+        to right,
+        var(--danger) var(--done, 100%),
+        color-mix(in srgb, var(--danger) 40%, transparent) var(--done, 100%));
 }
 
 /* ==========================================================================

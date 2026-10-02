@@ -3,16 +3,21 @@
 {% block body %}
 <main class="container">
     <section class="card">
-        <h2>Ma progression</h2>
-        <div class="progress"><div id="bar"></div></div>
-        <div class="progress-info">
-            <div>
-                <p><strong id="hours">0</strong> / 507 h <span class="muted" id="range"></span></p>
-                <p class="muted small" id="remaining"></p>
-                <p class="muted small" id="mode"></p>
+        <details class="more fold" id="progress-details" open>
+            <summary class="has-sum">
+                <span>Ma progression</span>
+                <span class="fold-sum" id="progress-sum"></span>
+            </summary>
+            <div class="progress"><div id="bar"></div></div>
+            <div class="progress-info">
+                <div>
+                    <p><strong id="hours">0</strong> / 507 h <span class="muted" id="range"></span></p>
+                    <p class="muted small" id="remaining"></p>
+                    <p class="muted small" id="mode"></p>
+                </div>
+                <p class="pct-big" id="pct"></p>
             </div>
-            <p class="pct-big" id="pct"></p>
-        </div>
+        </details>
     </section>
 
     <section class="card">

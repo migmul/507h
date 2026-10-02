@@ -3,6 +3,18 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.17.1] - 2026-10-02
+
+### Modifié
+- Cartes repliables : le triangle de texte est remplacé par un chevron dessiné en CSS, avec un espace régulier avec le titre, qui pivote à l'ouverture. Il s'applique à toutes les cartes et blocs repliables (plafonds, détails, méthode de calcul).
+- La carte « Ma progression » devient repliable, dépliée par défaut. Repliée, elle résume « 240 / 507 h · 47 % » sur la ligne du titre.
+- Cartes repliables : le résumé de la ligne du titre n'est affiché que lorsque la carte est repliée.
+- Plafonds annuels : la barre est dessinée avec un seul remplissage à dégradé net (effectué puis prévu), ce qui arrondit correctement son extrémité droite.
+- Plafonds annuels : suppression des doublons d'information. Le « n effectué(s) » sous la barre disparaît ; il reste « dont n prévu(s) » (si besoin) et « reste n j » ou « dépassé de n j ».
+
+### Supprimé
+- Mention « dont n contrat(s) estimé(s) à 8 h par jour » dans la carte des plafonds.
+
 ## [0.17] - 2026-10-02
 
 ### Ajouté

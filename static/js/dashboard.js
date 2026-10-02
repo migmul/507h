@@ -300,6 +300,7 @@ async function loadSummary() {
     $('#hours').textContent = nf1.format(s.hours);
     $('#range').textContent = ` (du ${fdate(s.window_start)} au ${fdate(s.window_end)})`;
     const pct = Math.round((s.hours / s.target) * 100);
+    $('#progress-sum').textContent = `${nf1.format(s.hours)} / ${s.target} h · ${pct} %`;
     $('#pct').textContent = `${pct} %`;
     $('#pct').classList.toggle('done', pct >= 100);
     const left = Math.max(0, s.target - s.hours);
@@ -519,25 +520,21 @@ function limitBlock(r) {
     const head = el('div', undefined, 'limit-head');
     head.append(
         el('strong', r.label),
-        el('span', `${nf1.format(r.total)} / ${r.max_days} j`, r.over ? 'over' : ''));
+        el('span', `${nf1.format(r.total)} / ${r.max_days} jours`, r.over ? 'over' : ''));
 
+    // Un seul remplissage : dégradé net entre les jours effectués et les jours prévus
     const bar = el('div', undefined, r.over ? 'progress multi over' : 'progress multi');
-    const done = el('div');
-    const planned = el('div', undefined, 'planned');
-    const donePct = Math.min(100, (r.done / r.max_days) * 100);
-    done.style.width = donePct + '%';
-    planned.style.width = Math.min(100 - donePct, (r.planned / r.max_days) * 100) + '%';
-    bar.append(done, planned);
+    const fill = el('div');
+    fill.style.width = Math.min(100, (r.total / r.max_days) * 100) + '%';
+    fill.style.setProperty('--done', (r.total > 0 ? (r.done / r.total) * 100 : 100) + '%');
+    bar.append(fill);
 
-    const parts = [`${nf1.format(r.done)} effectué(s)`];
-    if (r.planned > 0) parts.push(`${nf1.format(r.planned)} prévu(s)`);
+    const parts = [];
+    if (r.planned > 0) parts.push(`dont ${nf1.format(r.planned)} prévu(s)`);
     parts.push(r.over ? `dépassé de ${nf1.format(-r.remaining)} j` : `reste ${nf1.format(r.remaining)} j`);
     const lines = [el('p', parts.join(' · '), 'muted small')];
     if (r.per_week) {
         lines.push(el('p', `soit ${nf1.format(r.per_week)} j par semaine d'ici le 31/12`, 'muted small'));
-    }
-    if (r.estimated) {
-        lines.push(el('p', `dont ${r.estimated} contrat(s) estimé(s) à 8 h par jour`, 'muted small'));
     }
     box.append(head, bar, ...lines);
     return box;
