@@ -3,6 +3,14 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.16.1] - 2026-10-02
+
+### Corrigé
+- Liste des contrats sur ordinateur : un nom d'employeur ou de mission très long élargissait le tableau et repoussait le bouton « Modifier » hors de l'écran, avec une barre de défilement tout en bas de la liste. Les textes longs passent désormais à la ligne (employeur 220 px, mission 320 px au maximum) et la colonne des boutons reste collée au bord droit si le tableau doit tout de même défiler.
+
+### Modifié
+- Tableau de bord : le pourcentage des 507 h effectuées est affiché en grand, en bas à droite de la carte de progression (en vert à partir de 100 %). La ligne d'heures ne le répète plus.
+
 ## [0.16] - 2026-10-02
 
 ### Ajouté

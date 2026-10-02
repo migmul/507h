@@ -714,6 +714,32 @@ tbody tr.group-row td {
     .t-payments td:last-child button:last-child {
         margin-right: -.5rem;
     }
+
+    /* Textes longs : retour à la ligne plutôt qu'un tableau qui s'élargit */
+    .contract-row td:nth-child(1) {
+        max-width: 220px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .contract-row td:nth-child(2) {
+        max-width: 320px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    /* Boutons d'action toujours visibles, même si le tableau défile */
+    .contract-row td:last-child {
+        position: sticky;
+        right: 0;
+        background: var(--surface);
+    }
+}
+
+@media (hover: hover) {
+    .contract-row:hover td:last-child {
+        background: color-mix(in srgb, var(--surface) 96%, var(--text));
+    }
 }
 
 .mobile-inline {
@@ -1009,9 +1035,32 @@ details.fold {
     padding-block: 1rem;
 }
 
-.pct {
-    margin-left: .25rem;
+.progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 1rem;
+}
+
+.progress-info > div {
+    min-width: 0;
+}
+
+.progress-info p {
+    margin: .25rem 0 0;
+}
+
+.pct-big {
+    margin: 0;
+    font-size: 3rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -.03em;
     color: var(--accent);
+}
+
+.pct-big.done {
+    color: var(--ok);
 }
 
 /* ==========================================================================
@@ -1744,5 +1793,9 @@ body {
     .cal-bar {
         flex-direction: column;
         align-items: flex-start;
+    }
+    
+    .pct-big {
+        font-size: 2.2rem;
     }
 }

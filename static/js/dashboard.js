@@ -293,7 +293,9 @@ async function loadSummary() {
     $('#bar').style.width = Math.min(100, (s.hours / s.target) * 100) + '%';
     $('#hours').textContent = nf1.format(s.hours);
     $('#range').textContent = ` (du ${fdate(s.window_start)} au ${fdate(s.window_end)})`;
-    $('#pct').textContent = `· ${Math.round((s.hours / s.target) * 100)} %`;
+    const pct = Math.round((s.hours / s.target) * 100);
+    $('#pct').textContent = `${pct} %`;
+    $('#pct').classList.toggle('done', pct >= 100);
     const left = Math.max(0, s.target - s.hours);
     $('#remaining').textContent = left > 0
         ? `Il te manque ${nf1.format(left)} h.`
