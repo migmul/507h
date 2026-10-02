@@ -3,6 +3,11 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.17.2] - 2026-10-02
+
+### Modifié
+- Plafonds annuels : les informations « dont n prévu(s) », « reste n j » (ou « dépassé de n j ») et « soit n j par semaine d'ici le 31/12 » sont réunies sur une seule ligne, qui passe à la ligne seulement si l'écran est trop étroit.
+
 ## [0.17.1] - 2026-10-02
 
 ### Modifié

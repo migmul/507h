@@ -532,11 +532,8 @@ function limitBlock(r) {
     const parts = [];
     if (r.planned > 0) parts.push(`dont ${nf1.format(r.planned)} prévu(s)`);
     parts.push(r.over ? `dépassé de ${nf1.format(-r.remaining)} j` : `reste ${nf1.format(r.remaining)} j`);
-    const lines = [el('p', parts.join(' · '), 'muted small')];
-    if (r.per_week) {
-        lines.push(el('p', `soit ${nf1.format(r.per_week)} j par semaine d'ici le 31/12`, 'muted small'));
-    }
-    box.append(head, bar, ...lines);
+    if (r.per_week) parts.push(`soit ${nf1.format(r.per_week)} j par semaine d'ici le 31/12`);
+    box.append(head, bar, el('p', parts.join(' · '), 'muted small'));
     return box;
 }
 
