@@ -1,4 +1,20 @@
+# Secrets et données
 .env
+.env.*
+!.env.example
+*.env
 instance/
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
 .venv/
+venv/
 __pycache__/
+*.pyc
+
+# Système et éditeur
+.DS_Store
+.idea/

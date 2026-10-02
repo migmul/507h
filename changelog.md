@@ -3,6 +3,19 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.18] - 2026-10-02
+
+### Ajouté
+- Déploiement par conteneur Docker : `Dockerfile` (Python 3.12 slim, utilisateur sans privilèges, un worker Gunicorn à quatre threads, données dans le volume `/app/instance`) et `.dockerignore`.
+- Publication automatique de l'image sur GitHub Container Registry (`ghcr.io/migmul/507h`) par GitHub Actions à chaque tag de version commençant par `v` (`v0.18.0`, `v0.18.1`, etc.). L'image reçoit une étiquette du nom du tag (par exemple `v0.18.1`) et l'étiquette `latest`.
+- Point de contrôle `/healthz` (sans authentification, vérifie l'accès à la base) utilisé par le `HEALTHCHECK` Docker et utilisable par une supervision externe.
+- Variable `PROXY_HOPS` : nombre de proxys de confiance devant l'application (1 derrière Nginx Proxy Manager). Elle active `ProxyFix` pour que l'adresse IP, le protocole et l'hôte réels des visiteurs soient lus dans les en-têtes `X-Forwarded-*`, ce qui rend la limitation des tentatives de connexion efficace derrière un reverse proxy.
+- Modèle de stack Portainer / Compose (`deploy/portainer-stack.yml`) : configuration par variables d'environnement de la stack, données dans un dossier de l'hôte, réseau partagé avec Nginx Proxy Manager.
+
+### Modifié
+- Numéro de version `0.18`.
+- `.gitignore` complété (fichiers d'environnement, dossier de données, bases SQLite, fichiers système et d'éditeur).
+
 ## [0.17.2] - 2026-10-02
 
 ### Modifié

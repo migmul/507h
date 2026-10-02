@@ -32,8 +32,9 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-APP_VERSION = "0.16"
+APP_VERSION = "0.18"
 
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
@@ -70,6 +71,12 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(days=14),
     MAX_CONTENT_LENGTH=MAX_PDF + 1024 * 1024,
 )
+
+# Derrière un reverse proxy : lit l'IP, le protocole et l'hôte réels dans X-Forwarded-*
+hops = int(os.environ.get("PROXY_HOPS", "0") or 0)
+if hops:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops)
+
 FERNET = Fernet(load_secret("FILE_KEY", "file_key", lambda: Fernet.generate_key().decode()))
 app.jinja_env.globals["app_version"] = APP_VERSION
 
@@ -629,10 +636,25 @@ def login_page():
         return redirect(url_for("dashboard"))
     return render_template("auth.html")
 
+@app.get("/intermittence")
+@login_required
+def intermittence_page():
+    return render_template("intermittence.html")
+
+@app.get("/stats")
+@login_required
+def stats_page():
+    return render_template("stats.html")
+
 @app.get("/account")
 @login_required
 def account_page():
     return render_template("account.html")
+
+@app.get("/healthz")
+def healthz():
+    get_db().execute("SELECT 1").fetchone()
+    return jsonify(status="ok")
 
 
 # ---------- API auth ----------
@@ -1319,12 +1341,6 @@ def payments_totals(db, uid, right_start):
     return {"last12": last12 / 100, "since_right": since}
 
 
-@app.get("/intermittence")
-@login_required
-def intermittence_page():
-    return render_template("intermittence.html")
-
-
 @app.get("/api/intermittence")
 @login_required
 def get_intermittence():
@@ -1583,11 +1599,6 @@ def build_stats(db, uid, key):
         "employers": ranked(emp), "jobs": ranked(jobs),
         "no_net": no_net, "events": events,
     }
-
-@app.get("/stats")
-@login_required
-def stats_page():
-    return render_template("stats.html")
 
 
 @app.get("/api/stats")
