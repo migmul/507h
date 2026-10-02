@@ -32,7 +32,7 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-APP_VERSION = "0.15.3"
+APP_VERSION = "0.16"
 
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS contracts (
   gross_cents INTEGER CHECK (gross_cents IS NULL OR gross_cents >= 0),
   net_cents INTEGER CHECK (net_cents IS NULL OR net_cents >= 0),
   comment TEXT NOT NULL DEFAULT '',
+  job_title TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_user_end ON contracts(user_id, end_date);
@@ -200,6 +201,8 @@ def migrate():
             COMMIT;
             """)
         migrate_rights(c)
+        if "job_title" not in {r[1] for r in c.execute("PRAGMA table_info(contracts)")}:
+            c.execute("ALTER TABLE contracts ADD COLUMN job_title TEXT NOT NULL DEFAULT ''")
 
 def migrate_rights(c):
     cols = {r[1] for r in c.execute("PRAGMA table_info(are_rights)")}
@@ -534,12 +537,15 @@ def parse_contract(data):
     employer = " ".join(str(data.get("employer", "")).split())
     mission = str(data.get("mission", "") or "").strip()
     comment = str(data.get("comment", "") or "").strip()
+    job_title = " ".join(str(data.get("job_title", "") or "").split())
     if not employer or len(employer) > 120:
         raise ValueError("Employeur requis (120 caractères max)")
     if len(mission) > 160:
         raise ValueError("Mission : 160 caractères max")
     if len(comment) > 500:
         raise ValueError("Commentaire : 500 caractères max")
+    if len(job_title) > 80:
+        raise ValueError("Poste : 80 caractères max")
     try:
         hours = float(str(data.get("hours")).replace(",", "."))
     except ValueError:
@@ -557,7 +563,7 @@ def parse_contract(data):
     if gross is not None and net is not None and net > gross:
         raise ValueError("Le net ne peut pas dépasser le brut")
     return (employer, mission, hours, start.isoformat(), end.isoformat(),
-            gross, net, comment)
+            gross, net, comment, job_title)
 
 
 def doc_to_dict(r):
@@ -569,7 +575,7 @@ def row_to_dict(r, docs):
                 hours=r["hours"], start_date=r["start_date"], end_date=r["end_date"],
                 gross=None if r["gross_cents"] is None else r["gross_cents"] / 100,
                 net=None if r["net_cents"] is None else r["net_cents"] / 100,
-                comment=r["comment"], documents=docs)
+                comment=r["comment"], job_title=r["job_title"], documents=docs)
 
 
 def user_dir(uid):
@@ -724,7 +730,7 @@ def add_contract():
     db = get_db()
     cur = db.execute(
         "INSERT INTO contracts(user_id, employer, mission, hours, start_date,"
-        " end_date, gross_cents, net_cents, comment) VALUES (?,?,?,?,?,?,?,?,?)",
+        " end_date, gross_cents, net_cents, comment, job_title) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (session["uid"], *vals))
     db.commit()
     return jsonify(id=cur.lastrowid), 201
@@ -740,7 +746,8 @@ def edit_contract(cid):
     db = get_db()
     cur = db.execute(
         "UPDATE contracts SET employer=?, mission=?, hours=?, start_date=?,"
-        " end_date=?, gross_cents=?, net_cents=?, comment=? WHERE id=? AND user_id=?",
+        " end_date=?, gross_cents=?, net_cents=?, comment=?, job_title=?"
+        " WHERE id=? AND user_id=?",
         (*vals, cid, session["uid"]))
     db.commit()
     return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
@@ -987,7 +994,7 @@ def import_data():
     try:
         db.executemany(
             "INSERT INTO contracts(user_id, employer, mission, hours, start_date,"
-            " end_date, gross_cents, net_cents, comment) VALUES (?,?,?,?,?,?,?,?,?)",
+            " end_date, gross_cents, net_cents, comment, job_title) VALUES (?,?,?,?,?,?,?,?,?,?)",
             [(uid, *v) for v in new_c])
         db.executemany(RIGHT_INSERT, [(uid, *v) for v in new_r])
         db.executemany(PAYMENT_INSERT, [(uid, *v) for v in new_p])
@@ -1010,7 +1017,7 @@ def export_account():
         "SELECT * FROM contracts WHERE user_id=? ORDER BY end_date DESC", (uid,))]
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("donnees.json", json.dumps(
+        z.writestr("507h-export.json", json.dumps(
             {"version": APP_VERSION, "email": u["email"], "created_at": u["created_at"],
              "droits_are": [{k: v for k, v in x.items() if k in (
                  "annexe", "opening_type", "fct_date", "start_date", "note")}
@@ -1425,6 +1432,13 @@ def period_bounds(db, uid, key, today):
             return min(min(cands), cur), cur, None, None
     return add_months(cur, -11), cur, None, None
 
+def bucket(store, key, name):
+    return store.setdefault(key, {"name": name, "hours": 0.0, "net": 0.0, "contracts": 0})
+
+
+def ranked(store):
+    return sorted(({**v, "hours": round(v["hours"], 1), "net": round(v["net"], 2)}
+                   for v in store.values()), key=lambda v: -v["hours"])
 
 def build_stats(db, uid, key):
     if key not in PERIODS:
@@ -1438,9 +1452,9 @@ def build_stats(db, uid, key):
     partial_first = since is not None and since.day != 1
 
     hours, salary, are = defaultdict(float), defaultdict(float), defaultdict(float)
-    emp, no_net = {}, 0
+    emp, jobs, no_net = {}, {}, 0
     rows = db.execute(
-        "SELECT employer, hours, start_date, end_date, net_cents FROM contracts"
+        "SELECT employer, job_title, hours, start_date, end_date, net_cents FROM contracts"
         " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
         (uid, lower.isoformat(), range_end.isoformat()))
     for r in rows:
@@ -1448,20 +1462,25 @@ def build_stats(db, uid, key):
         h_in = {m: v for m, v in spread(s, e, r["hours"], since, today).items() if m in mset}
         if not h_in:
             continue
-        d = emp.setdefault(
-            " ".join(r["employer"].lower().split()),
-            {"name": r["employer"], "hours": 0.0, "net": 0.0, "contracts": 0})
-        d["contracts"] += 1
+        job = " ".join((r["job_title"] or "").split())
+        targets = (
+            bucket(emp, " ".join(r["employer"].lower().split()), r["employer"]),
+            bucket(jobs, job.lower(), job or "Non renseigné"),
+        )
+        for t in targets:
+            t["contracts"] += 1
         for m, v in h_in.items():
             hours[m] += v
-            d["hours"] += v
+            for t in targets:
+                t["hours"] += v
         if r["net_cents"] is None:
             no_net += 1
         else:
             for m, v in spread(s, e, r["net_cents"] / 100, since, today).items():
                 if m in mset:
                     salary[m] += v
-                    d["net"] += v
+                    for t in targets:
+                        t["net"] += v
     pay_floor = pay_since.isoformat() if pay_since else None
     for p in db.execute("SELECT month_covered, paid_on, amount_cents FROM payments WHERE user_id=?", (uid,)):
         if p["month_covered"] in mset and (pay_floor is None or p["paid_on"] >= pay_floor):
@@ -1470,7 +1489,6 @@ def build_stats(db, uid, key):
     series = [{
         "month": m, "hours": round(hours[m], 1), "salary": round(salary[m], 2),
         "are": round(are[m], 2), "total": round(salary[m] + are[m], 2),
-        # un mois est « complet » s'il est terminé et entièrement dans la période
         "complete": m < cur_key and not (partial_first and m == first_key),
     } for m in months]
     done = [x for x in series if x["complete"]]
@@ -1479,16 +1497,6 @@ def build_stats(db, uid, key):
     total_hours = sum(x["hours"] for x in series)
 
     hist = rights_history(db, uid)
-    rights = []
-    for r in reversed(hist):
-        during = period_totals(
-            db, uid, date.fromisoformat(r["start_date"]),
-            min(date.fromisoformat(r["end_date"]), today))
-        rights.append({
-            "id": r["id"], "start_date": r["start_date"], "opening_type": r["opening_type"],
-            "ended_early": r["ended_early"], "ref_hours": r["ref_hours"],
-            "during_hours": during["hours"]})
-
     events = {
         "contracts": [
             {"s": r["start_date"], "e": r["end_date"], "h": r["hours"],
@@ -1518,12 +1526,9 @@ def build_stats(db, uid, key):
         "hours_stats": summarize([(x["month"], x["hours"]) for x in done]),
         "income": {k: summarize([(x["month"], x[k]) for x in done])
                    for k in ("salary", "are", "total")},
-        "employers": sorted(
-            ({**v, "hours": round(v["hours"], 1), "net": round(v["net"], 2)} for v in emp.values()),
-            key=lambda v: -v["hours"]),
-        "rights": rights, "no_net": no_net, "events": events,
+        "employers": ranked(emp), "jobs": ranked(jobs),
+        "no_net": no_net, "events": events,
     }
-
 
 @app.get("/stats")
 @login_required

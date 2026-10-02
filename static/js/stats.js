@@ -364,34 +364,19 @@ function render() {
         fmt: (v) => eur0.format(v),
     });
 
-    barChart($('#chart-rights'), st.rights.map((r) => ({
-        label: fdate(r.start_date).slice(0, 5) + '/' + r.start_date.slice(2, 4),
-        vals: [r.ref_hours, r.during_hours],
-        tip: `Droit du ${fdate(r.start_date)}${r.ended_early ? ' (remplacé avant terme)' : ''}\n` +
-            `Heures de référence : ${fh(r.ref_hours)}\nHeures pendant le droit : ${fh(r.during_hours)}`,
-    })), {
-        mode: 'group',
-        series: [
-            { label: 'Heures de référence', color: COLORS[0] },
-            { label: 'Heures pendant le droit', color: COLORS[2] },
-        ],
-        ref: { value: 507, label: '507 h' },
-        fmt: (v) => Math.round(v),
-    });
-
-    renderDependency();
+    renderDonuts();
     if ($('#cal-details').open) renderCalendar();    // calculé seulement s'il est déplié
 }
 
-function renderDependency() {
-    const mode = $('#dep-mode').value;
-    const list = stats.employers.filter((e) => e[mode] > 0).sort((a, b) => b[mode] - a[mode]);
-    const parts = list.slice(0, 7).map((e) => ({
+function renderDonut(boxSel, modeSel, list) {
+    const mode = $(modeSel).value;
+    const items = list.filter((e) => e[mode] > 0).sort((a, b) => b[mode] - a[mode]);
+    const parts = items.slice(0, 7).map((e) => ({
         label: e.name,
         value: e[mode],
         extra: `${e.contracts} contrat(s) · ${fh(e.hours)} · ${eur0.format(e.net)}`,
     }));
-    const others = list.slice(7);
+    const others = items.slice(7);
     if (others.length) {
         parts.push({
             label: `Autres (${others.length})`,
@@ -399,7 +384,12 @@ function renderDependency() {
             extra: `${others.reduce((a, e) => a + e.contracts, 0)} contrat(s)`,
         });
     }
-    donut($('#chart-dep'), parts, mode === 'hours' ? fh : (v) => eur0.format(v));
+    donut($(boxSel), parts, mode === 'hours' ? fh : (v) => eur0.format(v));
+}
+
+function renderDonuts() {
+    renderDonut('#chart-dep', '#dep-mode', stats.employers);
+    renderDonut('#chart-jobs', '#jobs-mode', stats.jobs);
 }
 
 async function load() {
@@ -408,7 +398,8 @@ async function load() {
 }
 
 $('#period').onchange = load;
-$('#dep-mode').onchange = renderDependency;
+$('#dep-mode').onchange = renderDonuts;
+$('#jobs-mode').onchange = renderDonuts;
 $('#cal-prev').onclick = () => { calYear--; renderCalendar(); };
 $('#cal-next').onclick = () => { calYear++; renderCalendar(); };
 $('#cal-details').addEventListener('toggle', () => {

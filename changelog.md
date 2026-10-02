@@ -3,6 +3,19 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.16] - 2026-10-02
+
+### Ajouté
+- Tableau de bord : pourcentage des 507 h effectuées à côté du nombre d'heures.
+- Champ « Poste occupé » sur les contrats (monteur vidéo, étalonneur, assistant…), facultatif, 80 caractères maximum. Les postes déjà saisis sont proposés en suggestion. Le poste est affiché sous l'employeur dans la liste, pris en compte par la recherche, exporté et importé.
+- Statistiques : graphique « Répartition des postes occupés » en anneau, par heures ou par salaires nets, avec regroupement des petits postes en « Autres » et une part « Non renseigné » pour les contrats sans poste.
+- Migration automatique de la table `contracts` (colonne `job_title`).
+
+### Modifié
+- Statistiques : « Heures par droit » est remplacé par « Répartition des postes occupés » ; « Dépendance aux employeurs » devient « Répartition des employeurs ».
+- Les statistiques ne calculent plus les heures par droit (données inutilisées).
+- Le fichier JSON de l'archive d'export s'appelle désormais `507h-export.json` au lieu de `donnees.json`. L'import accepte tout fichier JSON valide : les anciens exports restent importables.
+
 ## [0.15.3] - 2026-10-01
 
 ### Modifié

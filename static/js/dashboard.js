@@ -122,7 +122,7 @@ function filteredContracts() {
         if (view.status === 'nonet' && c.gross != null && c.net != null) return false;
         if (view.status === 'nodoc' && c.documents.length) return false;
         if (terms.length) {
-            const hay = fold(`${c.employer} ${c.mission} ${c.comment}`);
+            const hay = fold(`${c.employer} ${c.job_title} ${c.mission} ${c.comment}`);
             if (!terms.every((t) => hay.includes(t))) return false;
         }
         return true;
@@ -200,8 +200,10 @@ function contractRow(c) {
     if (c.comment) mission.append(el('div', c.comment, 'comment'));
     if (!c.mission && !isDup(c) && !c.comment) mission.className = 'none';
     const docs = c.documents.length;
+    const employer = el('td', c.employer);
+    if (c.job_title) employer.append(el('span', c.job_title, 'sub'));
     tr.append(
-        el('td', c.employer),
+        employer,
         mission,
         el('td', fdate(c.start_date)),
         el('td', fdate(c.end_date)),
@@ -291,6 +293,7 @@ async function loadSummary() {
     $('#bar').style.width = Math.min(100, (s.hours / s.target) * 100) + '%';
     $('#hours').textContent = nf1.format(s.hours);
     $('#range').textContent = ` (du ${fdate(s.window_start)} au ${fdate(s.window_end)})`;
+    $('#pct').textContent = `· ${Math.round((s.hours / s.target) * 100)} %`;
     const left = Math.max(0, s.target - s.hours);
     $('#remaining').textContent = left > 0
         ? `Il te manque ${nf1.format(left)} h.`
@@ -301,12 +304,26 @@ async function loadSummary() {
         : '12 derniers mois glissants (aucun droit renseigné sur la page Intermittence).';
 }
 
+function renderJobTitles() {
+    const counts = new Map();
+    for (const c of contracts) {
+        if (c.job_title) counts.set(c.job_title, (counts.get(c.job_title) || 0) + 1);
+    }
+    const titles = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t);
+    $('#job-titles').replaceChildren(...titles.map((t) => {
+        const o = document.createElement('option');
+        o.value = t;
+        return o;
+    }));
+}
+
 async function load() {
     [contracts, employers] = await Promise.all([api('/api/contracts'), api('/api/employers')]);
     computeDuplicates();
     renderFilters();
     render();
     renderEmployers();
+    renderJobTitles();
     await loadSummary();
 }
 
@@ -357,7 +374,7 @@ function openDialog(c) {
     $('#form-error').textContent = '';
     form.elements.id.value = c ? c.id : '';
     if (c) {
-        for (const k of ['employer', 'mission', 'hours', 'start_date', 'end_date', 'gross', 'net', 'comment']) {
+        for (const k of ['employer', 'job_title', 'mission', 'hours', 'start_date', 'end_date', 'gross', 'net', 'comment']) {
             form.elements[k].value = c[k] ?? '';
         }
     }
@@ -397,7 +414,7 @@ form.addEventListener('submit', async (e) => {
     err.textContent = '';
     const f = new FormData(form);
     const payload = Object.fromEntries(
-        ['employer', 'mission', 'hours', 'start_date', 'end_date', 'gross', 'net', 'comment']
+        ['employer', 'job_title', 'mission', 'hours', 'start_date', 'end_date', 'gross', 'net', 'comment']
             .map((k) => [k, f.get(k)]));
     const files = ['contrat', 'aem', 'bulletin']
         .map((k) => [k, f.get('file_' + k)])

@@ -6,7 +6,8 @@
         <h2>Ma progression</h2>
         <div class="progress"><div id="bar"></div></div>
         <p><strong id="hours">0</strong> / 507 h
-            <span class="muted" id="range"></span></p>
+            <strong class="pct" id="pct"></strong> <span class="muted" id="range"></span>
+        </p>
         <p class="muted small" id="remaining"></p>
         <p class="muted small" id="mode"></p>
     </section>
@@ -67,6 +68,11 @@
             <datalist id="employers"></datalist>
             <div id="employer-chips" class="chips" aria-label="Employeurs récents"></div>
         </div>
+
+        <label class="m-full">Poste occupé (optionnel)
+            <input name="job_title" maxlength="80" list="job-titles" autocomplete="off" placeholder="Monteur vidéo, étalonneur, assistant…">
+        </label>
+        <datalist id="job-titles"></datalist>
 
         <label class="m-full">Mission (optionnel) <input name="mission" maxlength="160"></label>
         <label class="m-full">Heures <input name="hours" type="number" step="0.5" min="0.5" required></label>

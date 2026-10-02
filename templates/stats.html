@@ -80,12 +80,18 @@
             <div class="chart" id="chart-income"></div>
         </section>
         <section class="card">
-            <div class="card-head"><h2>Heures par droit</h2></div>
-            <div class="chart" id="chart-rights"></div>
+            <div class="card-head">
+                <h2>Répartition des postes occupés</h2>
+                <select id="jobs-mode" class="auto" aria-label="Mesure">
+                    <option value="hours">Heures</option>
+                    <option value="net">Salaires nets</option>
+                </select>
+            </div>
+            <div class="chart" id="chart-jobs"></div>
         </section>
         <section class="card">
             <div class="card-head">
-                <h2>Dépendance aux employeurs</h2>
+                <h2>Répartition des employeurs</h2>
                 <select id="dep-mode" class="auto" aria-label="Mesure">
                     <option value="hours">Heures</option>
                     <option value="net">Salaires nets</option>
