@@ -257,6 +257,21 @@ function buildDays(from, to) {
     return days;
 }
 
+// Icône de gâteau dessinée au trait, intégrée au code (aucun fichier externe)
+const CAKE_PATHS = [
+    'M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8',
+    'M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1',
+    'M2 21h20',
+    'M7 8v3M12 8v3M17 8v3',
+    'M7 4h.01M12 4h.01M17 4h.01',
+];
+
+function cakeIcon() {
+    const svg = s('svg', { viewBox: '0 0 24 24', class: 'icon-cake', 'aria-hidden': 'true' });
+    for (const d of CAKE_PATHS) svg.append(s('path', { d }));
+    return svg;
+}
+
 function dayCell(key, info, todayIso, dt) {
     const cell = el('div', String(dt.getUTCDate()), 'cd');
     if ([0, 6].includes(dt.getUTCDay())) cell.classList.add('we');
@@ -264,7 +279,8 @@ function dayCell(key, info, todayIso, dt) {
     if (info) {
         if (info.contracts.length) cell.classList.add(info.contracts.length > 1 ? 'c2' : 'c1');
         const mark = MARK_PRIORITY.find((k) => info.marks.has(k));
-        if (mark) cell.classList.add('m-' + mark);
+        if (mark === 'anniv') cell.append(cakeIcon());
+        else if (mark) cell.classList.add('m-' + mark);
         hover(cell, [fdate(key), ...info.contracts, ...info.notes].join('\n'));
     }
     return cell;

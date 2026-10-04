@@ -3,6 +3,13 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.19.1] - 2026-10-04
+
+### Modifié
+- Calendrier : la date anniversaire est repérée par une icône de gâteau SVG intégrée directement dans la page (plus de fichier externe, plus d'émoji système), dessinée au trait comme les icônes du menu. Elle prend la couleur du thème et passe en blanc sur un jour de contrat en orange vif. La même icône est utilisée dans la légende.
+- Tableau de bord, carte « Ma progression » : le pourcentage est placé juste sous la barre, aligné à droite, à la hauteur de la première ligne de texte, sans espace entre la barre et lui.
+- Mobile : le double appui ne zoome plus la page (`touch-action: manipulation`). Le zoom par pincement reste possible.
+
 ## [0.19] - 2026-10-04
 
 ### Modifié
