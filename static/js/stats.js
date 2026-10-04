@@ -208,6 +208,7 @@ function donut(box, parts, fmt) {
 }
 
 /* ---------- Calendrier ---------- */
+/* ---------- Calendrier ---------- */
 const iso = (d) => d.toISOString().slice(0, 10);
 
 function eachDay(a, b, fn) {
@@ -226,66 +227,110 @@ const MARK_LABEL = {
     pay: 'Virement France Travail',
 };
 
-function renderCalendar() {
-    $('#cal-year').textContent = calYear;
-    const y0 = `${calYear}-01-01`;
-    const y1 = `${calYear}-12-31`;
+let calMonth = new Date().getMonth();
+const isMobileCal = () => window.matchMedia('(max-width: 700px)').matches;
+
+// Contrats, virements et repères des droits entre deux dates (incluses)
+function buildDays(from, to) {
     const days = {};
     const get = (d) => (days[d] ||= { contracts: [], marks: new Set(), notes: [] });
     const ev = stats.events;
-
     for (const c of ev.contracts) {
-        if (c.e < y0 || c.s > y1) continue;
+        if (c.e < from || c.s > to) continue;
         const label = `${c.emp}${c.mission ? ' – ' + c.mission : ''} (${Math.round(c.h * 10) / 10} h)`;
-        eachDay(c.s < y0 ? y0 : c.s, c.e > y1 ? y1 : c.e, (d) => get(d).contracts.push(label));
+        eachDay(c.s < from ? from : c.s, c.e > to ? to : c.e, (d) => get(d).contracts.push(label));
     }
     for (const p of ev.payments) {
-        if (p.d >= y0 && p.d <= y1) {
+        if (p.d >= from && p.d <= to) {
             const g = get(p.d);
             g.marks.add('pay');
             g.notes.push(`Virement France Travail : ${eur0.format(p.a)} (${fmonth(p.m, true)})`);
         }
     }
     for (const r of ev.rights) {
-        if (r.d >= y0 && r.d <= y1) {
+        if (r.d >= from && r.d <= to) {
             const g = get(r.d);
             g.marks.add(r.kind);
             g.notes.push(MARK_LABEL[r.kind] + (r.early ? ' (droit remplacé avant terme)' : ''));
         }
     }
+    return days;
+}
 
-    const cells = [el('span', '')];
-    for (let d = 1; d <= 31; d++) cells.push(el('span', String(d), 'ml'));
+function dayCell(key, info, todayIso, dt) {
+    const cell = el('div', String(dt.getUTCDate()), 'cd');
+    if ([0, 6].includes(dt.getUTCDay())) cell.classList.add('we');
+    if (key === todayIso) cell.classList.add('today');
+    if (info) {
+        if (info.contracts.length) cell.classList.add(info.contracts.length > 1 ? 'c2' : 'c1');
+        const mark = MARK_PRIORITY.find((k) => info.marks.has(k));
+        if (mark) cell.classList.add('m-' + mark);
+        hover(cell, [fdate(key), ...info.contracts, ...info.notes].join('\n'));
+    }
+    return cell;
+}
+
+function renderCalendar() {
+    const grid = $('#cal');
     const todayIso = iso(new Date(Date.now() - new Date().getTimezoneOffset() * 60000));
 
+    if (isMobileCal()) {
+        // Mobile : un seul mois, grille de sept colonnes (lundi en premier)
+        const first = new Date(Date.UTC(calYear, calMonth, 1));
+        const len = new Date(Date.UTC(calYear, calMonth + 1, 0)).getUTCDate();
+        $('#cal-year').textContent = first.toLocaleDateString(
+            'fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+        const days = buildDays(iso(first), iso(new Date(Date.UTC(calYear, calMonth, len))));
+        const cells = ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((w) => el('span', w, 'wd'));
+        for (let i = 0; i < (first.getUTCDay() + 6) % 7; i++) cells.push(el('div', '', 'cd off'));
+        for (let d = 1; d <= len; d++) {
+            const dt = new Date(Date.UTC(calYear, calMonth, d));
+            const key = iso(dt);
+            cells.push(dayCell(key, days[key], todayIso, dt));
+        }
+        grid.className = 'cal-month';
+        grid.replaceChildren(...cells);
+        return;
+    }
+
+    // Ordinateur : l'année entière, un mois par ligne
+    $('#cal-year').textContent = calYear;
+    const days = buildDays(`${calYear}-01-01`, `${calYear}-12-31`);
+    const cells = [el('span', '')];
+    for (let d = 1; d <= 31; d++) cells.push(el('span', String(d), 'ml'));
     for (let m = 0; m < 12; m++) {
-        const short = window.innerWidth <= 700;
         const name = new Date(Date.UTC(calYear, m, 1)).toLocaleDateString(
-            'fr-FR', { month: short ? 'short' : 'long', timeZone: 'UTC' });
+            'fr-FR', { month: 'long', timeZone: 'UTC' });
         cells.push(el('span', name, 'ml mn'));
         const len = new Date(Date.UTC(calYear, m + 1, 0)).getUTCDate();
         for (let d = 1; d <= 31; d++) {
-            const cell = el('div', d <= len ? String(d) : '', 'cd');
             if (d > len) {
-                cell.classList.add('off');
-                cells.push(cell);
+                cells.push(el('div', '', 'cd off'));
                 continue;
             }
             const dt = new Date(Date.UTC(calYear, m, d));
             const key = iso(dt);
-            const info = days[key];
-            if ([0, 6].includes(dt.getUTCDay())) cell.classList.add('we');
-            if (key === todayIso) cell.classList.add('today');
-            if (info) {
-                if (info.contracts.length) cell.classList.add(info.contracts.length > 1 ? 'c2' : 'c1');
-                const mark = MARK_PRIORITY.find((k) => info.marks.has(k));
-                if (mark) cell.classList.add('m-' + mark);
-                hover(cell, [fdate(key), ...info.contracts, ...info.notes].join('\n'));
-            }
-            cells.push(cell);
+            cells.push(dayCell(key, days[key], todayIso, dt));
         }
     }
-    $('#cal').replaceChildren(...cells);
+    grid.className = 'cal';
+    grid.replaceChildren(...cells);
+}
+
+function shiftCalendar(step) {
+    if (isMobileCal()) {
+        calMonth += step;
+        if (calMonth < 0) {
+            calMonth = 11;
+            calYear--;
+        } else if (calMonth > 11) {
+            calMonth = 0;
+            calYear++;
+        }
+    } else {
+        calYear += step;
+    }
+    renderCalendar();
 }
 
 /* ---------- Rendu ---------- */
@@ -400,8 +445,8 @@ async function load() {
 $('#period').onchange = load;
 $('#dep-mode').onchange = renderDonuts;
 $('#jobs-mode').onchange = renderDonuts;
-$('#cal-prev').onclick = () => { calYear--; renderCalendar(); };
-$('#cal-next').onclick = () => { calYear++; renderCalendar(); };
+$('#cal-prev').onclick = () => shiftCalendar(-1);
+$('#cal-next').onclick = () => shiftCalendar(1);
 $('#cal-details').addEventListener('toggle', () => {
     if ($('#cal-details').open) renderCalendar();
 });

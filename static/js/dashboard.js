@@ -304,13 +304,17 @@ async function loadSummary() {
     $('#pct').textContent = `${pct} %`;
     $('#pct').classList.toggle('done', pct >= 100);
     const left = Math.max(0, s.target - s.hours);
+    let until = '';
+    if (s.mode === 'since_fct') {
+        if (s.anniversary_date && s.anniversary_date >= s.window_end) {
+            until = ` avant le ${fdate(s.anniversary_date)}`;
+        }
+    } else {
+        until = ' sur les 12 derniers mois';
+    }
     $('#remaining').textContent = left > 0
-        ? `Il te manque ${nf1.format(left)} h.`
+        ? `Il te manque ${nf1.format(left)} h${until}`
         : 'Seuil des 507 h atteint';
-    $('#mode').textContent = s.mode === 'since_fct'
-        ? `Heures depuis ta fin de contrat retenue du ${fdate(s.fct_date)}` +
-          (s.anniversary_date ? ` · date anniversaire le ${fdate(s.anniversary_date)}` : '')
-        : '12 derniers mois glissants (aucun droit renseigné sur la page Intermittence).';
 }
 
 function renderJobTitles() {

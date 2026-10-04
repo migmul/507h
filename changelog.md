@@ -3,6 +3,15 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.19] - 2026-10-04
+
+### Modifié
+- Tableau de bord, carte « Ma progression » : le texte est raccourci en « Il te manque 267 h avant le 30/05/2027 » (la ligne sur la fin de contrat retenue disparaît ; sans droit renseigné, la phrase précise « sur les 12 derniers mois »). La date n'est pas affichée si la date anniversaire est passée.
+- Tableau de bord, mobile : le pourcentage ne passe plus sur deux lignes (« 47 » puis « % ») et garde sa place à droite.
+- Intermittence, mobile : la ligne du droit en cours dans l'historique n'est plus décalée par rapport aux autres ; seul son fond teinté déborde de la carte.
+- Statistiques, calendrier d'activité : sur mobile, affichage d'un seul mois à la fois (grille de sept colonnes, lundi en premier) avec boutons mois précédent et mois suivant. Sur ordinateur, la vue annuelle est conservée.
+- Statistiques, calendrier : la date anniversaire est repérée par un gâteau au lieu d'une étoile.
+
 ## [0.18] - 2026-10-02
 
 ### Ajouté
