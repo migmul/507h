@@ -69,7 +69,13 @@
 
     <div class="cols-2 stretch">
         <section class="card">
-            <div class="card-head"><h2>Heures par mois</h2></div>
+            <div class="card-head">
+                <h2 id="hours-title">Heures par mois</h2>
+                <select id="hours-unit" class="auto" aria-label="Unité" hidden>
+                    <option value="cachets">Cachets</option>
+                    <option value="hours">Heures</option>
+                </select>
+            </div>
             <div class="chart" id="chart-hours"></div>
         </section>
         <section class="card">

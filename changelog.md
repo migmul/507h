@@ -3,6 +3,21 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.20] - 2026-10-08
+
+### Ajouté
+- Annexe sur chaque contrat (8 technicien ou 10 artiste), choisie avec un sélecteur en haut de la fenêtre de saisie. Elle est exportée et importée avec le contrat.
+- Réglage « Annexe par défaut des nouveaux contrats » sur la page Compte, enregistré avec le compte. À la mise à jour, il reprend l'annexe du droit en cours (8 sinon), et les contrats existants reçoivent cette annexe.
+- Saisie en cachets pour l'annexe 10 : champ « Cachets » (1 cachet = 12 heures). L'équivalent en heures est calculé et affiché dans le champ des heures, qui devient en lecture seule tant qu'un nombre de cachets est saisi. On peut aussi saisir des heures sans cachets. Les calculs existants (progression des 507 h, statistiques, droits) utilisent les heures équivalentes.
+- Liste des contrats : le nombre de cachets apparaît sous les heures des contrats saisis en cachets.
+- Tableau de bord : pour l'annexe 10, la carte de progression indique l'équivalent en cachets (par exemple « Soit environ 20 cachets sur 43 »).
+- Statistiques : pour l'annexe 10, le graphique mensuel permet d'afficher les cachets au lieu des heures.
+- Migration automatique : colonnes `annexe` et `cachets` sur `contracts`, colonne `default_annexe` sur `users`.
+
+### Modifié
+- Plafonds de jours travaillés : sans nombre de jours saisi, un contrat en cachets compte un jour par cachet (au lieu de heures ÷ 8).
+- Mobile : l'unité « h » à côté des heures dans la liste des contrats est ajoutée par le script (et non plus par le style), pour laisser la place au nombre de cachets.
+
 ## [0.19.1] - 2026-10-04
 
 ### Modifié

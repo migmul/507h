@@ -41,6 +41,7 @@ async function loadInfo() {
     $('#twofa-status').textContent = a.totp_enabled
         ? `Activée · ${a.recovery_left} code(s) de récupération restant(s)`
         : 'Désactivée';
+    showAnnexe(a.default_annexe);
 }
 
 function bind(formId, handler) {
@@ -204,6 +205,30 @@ themeButtons.forEach((b) => {
     b.addEventListener('click', () => {
         Theme.set(b.dataset.themeChoice);
         showTheme();
+    });
+});
+
+/* ---------- Annexe par défaut des nouveaux contrats ---------- */
+const annexeButtons = document.querySelectorAll('[data-annexe-choice]');
+
+function showAnnexe(a) {
+    annexeButtons.forEach((b) => {
+        const on = Number(b.dataset.annexeChoice) === a;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', String(on));
+    });
+}
+
+annexeButtons.forEach((b) => {
+    b.addEventListener('click', async () => {
+        const a = Number(b.dataset.annexeChoice);
+        try {
+            await api('/api/account/preferences', 'POST', { default_annexe: a });
+            showAnnexe(a);
+            setMsg($('#pref-msg'), 'Enregistré.', true);
+        } catch (ex) {
+            setMsg($('#pref-msg'), ex.message);
+        }
     });
 });
 

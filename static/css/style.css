@@ -542,6 +542,9 @@ a.btn:hover {
     background: var(--surface-3);
 }
 
+.tabs.seg {
+    margin-top: 0;
+}
 
 /* ==========================================================================
    8. Tableaux et listes
@@ -1774,10 +1777,6 @@ body {
         order: 2;
         margin-left: auto;
         font-weight: 600;
-    }
-
-    .contract-row td:nth-child(5)::after {
-        content: ' h';
     }
 
     .contract-row td:nth-child(2) {

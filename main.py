@@ -34,7 +34,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-APP_VERSION = "0.18"
+APP_VERSION = "0.20"
 
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS users (
     totp_secret TEXT,
     totp_enabled INTEGER NOT NULL DEFAULT 0,
     totp_last_step INTEGER NOT NULL DEFAULT 0,
+    default_annexe INTEGER NOT NULL DEFAULT 8 CHECK (default_annexe IN (8, 10)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS email_tokens (
@@ -127,6 +128,8 @@ CREATE TABLE IF NOT EXISTS contracts (
   comment TEXT NOT NULL DEFAULT '',
   job_title TEXT NOT NULL DEFAULT '',
   days_worked REAL CHECK (days_worked IS NULL OR days_worked > 0),
+  annexe INTEGER NOT NULL DEFAULT 8 CHECK (annexe IN (8, 10)),
+  cachets INTEGER CHECK (cachets IS NULL OR cachets > 0),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_user_end ON contracts(user_id, end_date);
@@ -223,6 +226,21 @@ def migrate():
         if "days_worked" not in {r[1] for r in c.execute("PRAGMA table_info(contracts)")}:
             c.execute("ALTER TABLE contracts ADD COLUMN days_worked REAL "
                       "CHECK (days_worked IS NULL OR days_worked > 0)")
+        if "default_annexe" not in {r[1] for r in c.execute("PRAGMA table_info(users)")}:
+            c.execute("ALTER TABLE users ADD COLUMN default_annexe INTEGER NOT NULL DEFAULT 8"
+                      " CHECK (default_annexe IN (8, 10))")
+            # reprend l'annexe du droit le plus récent, 8 à défaut
+            c.execute("UPDATE users SET default_annexe = COALESCE((SELECT annexe FROM rights r"
+                      " WHERE r.user_id = users.id ORDER BY start_date DESC, id DESC LIMIT 1), 8)")
+        ccols = {r[1] for r in c.execute("PRAGMA table_info(contracts)")}
+        if "annexe" not in ccols:
+            c.execute("ALTER TABLE contracts ADD COLUMN annexe INTEGER NOT NULL DEFAULT 8"
+                      " CHECK (annexe IN (8, 10))")
+            c.execute("UPDATE contracts SET annexe = (SELECT default_annexe FROM users"
+                      " WHERE users.id = contracts.user_id)")
+        if "cachets" not in ccols:
+            c.execute("ALTER TABLE contracts ADD COLUMN cachets INTEGER"
+                      " CHECK (cachets IS NULL OR cachets > 0)")
 
 def migrate_rights(c):
     cols = {r[1] for r in c.execute("PRAGMA table_info(are_rights)")}
@@ -551,6 +569,9 @@ def to_cents(v):
     return int((d * 100).to_integral_value())
 
 
+CACHET_HOURS = 12
+
+
 def parse_contract(data):
     if not isinstance(data, dict):
         raise ValueError("Données invalides")
@@ -566,12 +587,35 @@ def parse_contract(data):
         raise ValueError("Commentaire : 500 caractères max")
     if len(job_title) > 80:
         raise ValueError("Poste : 80 caractères max")
+
     try:
-        hours = float(str(data.get("hours")).replace(",", "."))
-    except ValueError:
-        raise ValueError("Nombre d'heures invalide")
+        annexe = int(data.get("annexe") or 8)
+    except (TypeError, ValueError):
+        raise ValueError("Annexe invalide")
+    if annexe not in (8, 10):
+        raise ValueError("Annexe invalide")
+
+    raw_cachets = data.get("cachets")
+    cachets = None
+    if raw_cachets not in (None, ""):
+        if annexe != 10:
+            raise ValueError("Les cachets concernent l'annexe 10")
+        try:
+            value = float(str(raw_cachets).replace(",", "."))
+        except ValueError:
+            raise ValueError("Nombre de cachets invalide")
+        if value != int(value) or value < 1:
+            raise ValueError("Nombre de cachets : entier d'au moins 1")
+        cachets = int(value)
+        hours = float(cachets * CACHET_HOURS)
+    else:
+        try:
+            hours = float(str(data.get("hours")).replace(",", "."))
+        except ValueError:
+            raise ValueError("Nombre d'heures invalide")
     if not (0 < hours <= 1000):
         raise ValueError("Heures hors limites")
+
     raw_days = data.get("days_worked")
     if raw_days in (None, ""):
         days_worked = None
@@ -593,7 +637,7 @@ def parse_contract(data):
     if gross is not None and net is not None and net > gross:
         raise ValueError("Le net ne peut pas dépasser le brut")
     return (employer, mission, hours, start.isoformat(), end.isoformat(),
-            gross, net, comment, job_title, days_worked)
+            gross, net, comment, job_title, days_worked, annexe, cachets)
 
 
 def doc_to_dict(r):
@@ -606,7 +650,8 @@ def row_to_dict(r, docs):
                 gross=None if r["gross_cents"] is None else r["gross_cents"] / 100,
                 net=None if r["net_cents"] is None else r["net_cents"] / 100,
                 comment=r["comment"], job_title=r["job_title"],
-                days_worked=r["days_worked"], documents=docs)
+                days_worked=r["days_worked"], annexe=r["annexe"],
+                cachets=r["cachets"], documents=docs)
 
 
 def user_dir(uid):
@@ -776,8 +821,8 @@ def add_contract():
     db = get_db()
     cur = db.execute(
         "INSERT INTO contracts(user_id, employer, mission, hours, start_date, end_date,"
-        " gross_cents, net_cents, comment, job_title, days_worked)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        " gross_cents, net_cents, comment, job_title, days_worked, annexe, cachets)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (session["uid"], *vals))
     db.commit()
     return jsonify(id=cur.lastrowid), 201
@@ -793,7 +838,7 @@ def edit_contract(cid):
     db = get_db()
     cur = db.execute(
         "UPDATE contracts SET employer=?, mission=?, hours=?, start_date=?, end_date=?,"
-        " gross_cents=?, net_cents=?, comment=?, job_title=?, days_worked=?"
+        " gross_cents=?, net_cents=?, comment=?, job_title=?, days_worked=?, annexe=?, cachets=?"
         " WHERE id=? AND user_id=?",
         (*vals, cid, session["uid"]))
     db.commit()
@@ -892,7 +937,8 @@ def summary():
     t = period_totals(db, uid, start, today)
     return jsonify(hours=t["hours"], contracts=t["contracts"], target=HOURS_TARGET,
                    window_start=start.isoformat(), window_end=today.isoformat(),
-                   mode=mode, fct_date=fct_date, anniversary_date=da_iso)
+                   mode=mode, fct_date=fct_date, anniversary_date=da_iso,
+                   annexe=user_annexe(db, uid), default_annexe=default_annexe(db, uid))
 
 # ---------- API compte ----------
 def bump_sessions(db, uid):
@@ -905,14 +951,15 @@ def bump_sessions(db, uid):
 @login_required
 def account_info():
     db, uid = get_db(), session["uid"]
-    u = db.execute("SELECT email, created_at, email_verified, totp_enabled FROM users WHERE id=?",
-                   (uid,)).fetchone()
+    u = db.execute("SELECT email, created_at, email_verified, totp_enabled, default_annexe"
+                   " FROM users WHERE id=?", (uid,)).fetchone()
     nc = db.execute("SELECT COUNT(*) FROM contracts WHERE user_id=?", (uid,)).fetchone()[0]
     nd = db.execute("SELECT COUNT(*) FROM documents WHERE user_id=?", (uid,)).fetchone()[0]
     left = db.execute("SELECT COUNT(*) FROM recovery_codes WHERE user_id=?", (uid,)).fetchone()[0]
     return jsonify(email=u["email"], created_at=u["created_at"], contracts=nc, documents=nd,
                    email_verified=bool(u["email_verified"]), totp_enabled=bool(u["totp_enabled"]),
-                   recovery_left=left, mail_enabled=mail_enabled())
+                   recovery_left=left, mail_enabled=mail_enabled(),
+                   default_annexe=u["default_annexe"])
 
 
 @app.post("/api/account/email")
@@ -1062,8 +1109,8 @@ def import_data():
     try:
         db.executemany(
             "INSERT INTO contracts(user_id, employer, mission, hours, start_date, end_date,"
-            " gross_cents, net_cents, comment, job_title, days_worked)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " gross_cents, net_cents, comment, job_title, days_worked, annexe, cachets)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(uid, *v) for v in new_c])
         db.executemany(RIGHT_INSERT, [(uid, *v) for v in new_r])
         db.executemany(PAYMENT_INSERT, [(uid, *v) for v in new_p])
@@ -1597,7 +1644,7 @@ def build_stats(db, uid, key):
         "income": {k: summarize([(x["month"], x[k]) for x in done])
                    for k in ("salary", "are", "total")},
         "employers": ranked(emp), "jobs": ranked(jobs),
-        "no_net": no_net, "events": events,
+        "no_net": no_net, "events": events, "annexe": user_annexe(db, uid),
     }
 
 
@@ -1805,10 +1852,12 @@ def fold_text(s):
     return "".join(ch for ch in s if not unicodedata.combining(ch)).lower().strip()
 
 
-def contract_days(hours, days_worked):
-    """Jours d'un contrat : valeur saisie, sinon heures / 8. Retourne (jours, estimé)."""
+def contract_days(hours, days_worked, cachets=None):
+    """Jours d'un contrat : valeur saisie, sinon un jour par cachet, sinon heures / 8."""
     if days_worked is not None:
         return float(days_worked), False
+    if cachets:
+        return float(cachets), True
     return hours / HOURS_PER_DAY, True
 
 
@@ -1818,14 +1867,14 @@ def limit_usage(db, uid, rule, year, today):
     done = planned = 0.0
     n = estimated = 0
     rows = db.execute(
-        "SELECT employer, hours, start_date, end_date, days_worked FROM contracts"
+        "SELECT employer, hours, start_date, end_date, days_worked, cachets FROM contracts"
         " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
         (uid, y0.isoformat(), y1.isoformat()))
     for r in rows:
         if match not in fold_text(r["employer"]):
             continue
         s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
-        days, est = contract_days(r["hours"], r["days_worked"])
+        days, est = contract_days(r["hours"], r["days_worked"], r["cachets"])
         span = (e - s).days + 1
         lo, hi = max(s, y0), min(e, y1)
         in_year = (hi - lo).days + 1
@@ -1920,6 +1969,31 @@ def delete_limit(lid):
     cur = db.execute("DELETE FROM day_limits WHERE id=? AND user_id=?", (lid, session["uid"]))
     db.commit()
     return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
+
+def default_annexe(db, uid):
+    return db.execute("SELECT default_annexe FROM users WHERE id=?", (uid,)).fetchone()[0]
+
+
+def user_annexe(db, uid):
+    """Annexe du droit en cours, à défaut l'annexe par défaut du compte."""
+    r = current_right(db, uid)
+    return r["annexe"] if r else default_annexe(db, uid)
+
+
+@app.post("/api/account/preferences")
+@login_required
+def save_preferences():
+    d = request.get_json(silent=True) or {}
+    try:
+        annexe = int(d.get("default_annexe"))
+    except (TypeError, ValueError):
+        return err("Annexe invalide")
+    if annexe not in (8, 10):
+        return err("Annexe invalide")
+    db = get_db()
+    db.execute("UPDATE users SET default_annexe=? WHERE id=?", (annexe, session["uid"]))
+    db.commit()
+    return jsonify(ok=True)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", debug=os.environ.get("DEV") == "1", port=5007)

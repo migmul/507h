@@ -402,14 +402,22 @@ function render() {
     const months = st.series;
     const note = (m) => (m.complete ? '' : '\n(mois incomplet)');
 
+    const artist = st.annexe === 10;
+    const unitSelect = $('#hours-unit');
+    unitSelect.hidden = !artist;
+    const asCachets = artist && unitSelect.value === 'cachets';
+    $('#hours-title').textContent = asCachets ? 'Cachets par mois' : 'Heures par mois';
+    const conv = (h) => (asCachets ? Math.round((h / 12) * 10) / 10 : h);
+    const amount = (h) => (asCachets ? `${nf1.format(conv(h))} cachets` : fh(h));
+
     barChart($('#chart-hours'), months.map((m) => ({
         label: fmonth(m.month),
-        vals: [m.hours],
+        vals: [conv(m.hours)],
         partial: !m.complete,
-        tip: `${fmonth(m.month, true)}\nHeures : ${fh(m.hours)}${note(m)}`,
+        tip: `${fmonth(m.month, true)}\n${amount(m.hours)}${note(m)}`,
     })), {
         mode: 'group',
-        series: [{ label: 'Heures', color: COLORS[0] }],
+        series: [{ label: asCachets ? 'Cachets' : 'Heures', color: COLORS[0] }],
         fmt: (v) => Math.round(v),
     });
 
@@ -460,6 +468,7 @@ async function load() {
 
 $('#period').onchange = load;
 $('#dep-mode').onchange = renderDonuts;
+$('#hours-unit').onchange = render;
 $('#jobs-mode').onchange = renderDonuts;
 $('#cal-prev').onclick = () => shiftCalendar(-1);
 $('#cal-next').onclick = () => shiftCalendar(1);

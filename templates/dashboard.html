@@ -13,6 +13,7 @@
                 <div>
                     <p><strong id="hours">0</strong> / 507 h <span class="muted" id="range"></span></p>
                     <p class="muted small" id="remaining"></p>
+                    <p class="muted small" id="cachets-eq" hidden></p>
                 </div>
                 <p class="pct-big" id="pct"></p>
             </div>
@@ -79,6 +80,8 @@
     </section>
 </main>
 
+<!-- MODALE - AJOUT CONTRAT -->
+
 <dialog id="contract-dialog">
     <form id="contract-form" novalidate>
         <div class="card-head">
@@ -86,6 +89,14 @@
             <button type="button" class="ghost" id="close-dialog" aria-label="Fermer">✕</button>
         </div>
         <input type="hidden" name="id">
+
+        <input type="hidden" name="annexe" value="8">
+        <div class="full">
+            <div class="tabs seg" id="annexe-toggle" role="radiogroup" aria-label="Annexe">
+                <button type="button" role="radio" data-annexe="8">Annexe 8 · Technicien</button>
+                <button type="button" role="radio" data-annexe="10">Annexe 10 · Artiste</button>
+            </div>
+        </div>
 
         <div class="full">
             <label>Employeur
@@ -102,6 +113,7 @@
 
         <label class="m-full">Mission (optionnel) <input name="mission" maxlength="160"></label>
         <label>Heures <input name="hours" type="number" step="0.5" min="0.5" required></label>
+        <label id="cachets-label" hidden>Cachets (1 = 12 h) <input name="cachets" type="number" step="1" min="1" inputmode="numeric"></label>
         <label>Jours travaillés (optionnel) <input name="days_worked" type="number" step="0.5" min="0.5" placeholder="Estimé"></label>
         <label>Début <input name="start_date" type="date" required></label>
         <label>Fin <input name="end_date" type="date" required></label>
@@ -129,6 +141,9 @@
         </div>
     </form>
 </dialog>
+
+<!-- MODALE - AJOUT PLAFOND -->
+
 <dialog id="limit-dialog">
     <form id="limit-form" novalidate>
         <div class="card-head">

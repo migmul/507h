@@ -21,6 +21,7 @@ let dupMap = new Map();
 const view = { q: '', year: '', employer: '', status: '', group: true };
 const THIS_YEAR = String(new Date().getFullYear());
 const toggled = new Map();    // année -> dépliée (true) ou repliée (false), choisi à la main
+let defaultAnnexe = 8;
 
 const COLUMNS = [
     { key: 'employer', label: 'Employeur' },
@@ -78,11 +79,48 @@ function findDuplicate(v, excludeId) {
     return contracts.find((c) => String(c.id) !== String(excludeId) && dupKey(c) === key) || null;
 }
 
-// Suggestion affichée dans le champ « Jours travaillés » : heures / 8
-function updateDaysHint() {
-    const hours = Number(String(form.elements.hours.value).replace(',', '.'));
-    form.elements.days_worked.placeholder = hours > 0 ? `Estimé : ${nf1.format(hours / 8)}` : 'Estimé';
+function setAnnexe(a) {
+    form.elements.annexe.value = a;
+    $('#annexe-toggle').querySelectorAll('button').forEach((b) => {
+        const on = Number(b.dataset.annexe) === a;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', String(on));
+    });
+    const artist = a === 10;
+    $('#cachets-label').hidden = !artist;
+    // en annexe 10, « Jours travaillés » passe sur sa propre ligne pour garder Début | Fin appariés
+    form.elements.days_worked.closest('label').classList.toggle('m-full', artist);
+    if (!artist) form.elements.cachets.value = '';
+    syncCachets();
 }
+
+// Des cachets saisis imposent les heures (1 cachet = 12 h)
+function syncCachets() {
+    const n = Number(form.elements.cachets.value);
+    if (n > 0) {
+        form.elements.hours.value = n * 12;
+        form.elements.hours.readOnly = true;
+    } else {
+        form.elements.hours.readOnly = false;
+    }
+}
+
+// Suggestion du champ « Jours travaillés » : un jour par cachet, sinon heures / 8
+function updateDaysHint() {
+    const cachets = Number(form.elements.cachets.value);
+    const hours = Number(String(form.elements.hours.value).replace(',', '.'));
+    let est = null;
+    if (cachets > 0) est = cachets;
+    else if (hours > 0) est = hours / 8;
+    form.elements.days_worked.placeholder = est ? `Estimé : ${nf1.format(est)}` : 'Estimé';
+}
+
+$('#annexe-toggle').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    setAnnexe(Number(b.dataset.annexe));
+    updateDaysHint();
+});
 
 function checkDup() {
     const v = Object.fromEntries(new FormData(form));
@@ -208,12 +246,17 @@ function contractRow(c) {
     const docs = c.documents.length;
     const employer = el('td', c.employer);
     if (c.job_title) employer.append(el('span', c.job_title, 'sub'));
+    const hoursCell = el('td', undefined, 'num');
+    hoursCell.append(nf1.format(c.hours), el('span', ' h', 'mobile-inline'));
+    if (c.cachets) {
+        hoursCell.append(el('span', `${c.cachets} cachet${c.cachets > 1 ? 's' : ''}`, 'sub'));
+    }
     tr.append(
         employer,
         mission,
         el('td', fdate(c.start_date)),
         el('td', fdate(c.end_date)),
-        el('td', c.hours, 'num'),
+        hoursCell,
         el('td', money(c.gross), c.gross == null ? 'num none' : 'num'),
         el('td', money(c.net), c.net == null ? 'num none' : 'num'),
         el('td', docs ? `${docs} PDF` : '–', docs ? 'num' : 'num none'));
@@ -315,6 +358,12 @@ async function loadSummary() {
     $('#remaining').textContent = left > 0
         ? `Il te manque ${nf1.format(left)} h${until}`
         : 'Seuil des 507 h atteint';
+        defaultAnnexe = s.default_annexe;
+    const eq = $('#cachets-eq');
+    eq.hidden = s.annexe !== 10;
+    if (s.annexe === 10) {
+        eq.textContent = `Soit environ ${nf1.format(s.hours / 12)} cachets sur ${Math.ceil(s.target / 12)}`;
+    }
 }
 
 function renderJobTitles() {
@@ -388,7 +437,7 @@ function openDialog(c) {
     $('#form-error').textContent = '';
     form.elements.id.value = c ? c.id : '';
     if (c) {
-        for (const k of ['employer', 'job_title', 'mission', 'hours', 'days_worked', 'start_date', 'end_date', 'gross', 'net', 'comment']) {
+        for (const k of ['employer', 'job_title', 'mission', 'hours', 'cachets', 'days_worked', 'start_date', 'end_date', 'gross', 'net', 'comment']) {
             form.elements[k].value = c[k] ?? '';
         }
     }
@@ -396,6 +445,7 @@ function openDialog(c) {
     renderDocs();
     $('#form-title').textContent = c ? 'Modifier le contrat' : 'Ajouter un contrat';
     $('#contract-delete').hidden = !c;
+    setAnnexe(c ? c.annexe : defaultAnnexe);
     updateDaysHint();
     checkDup();
     dialog.showModal();
@@ -414,6 +464,7 @@ $('#add-btn').onclick = () => openDialog(null);
 $('#cancel').onclick = closeDialog;
 $('#close-dialog').onclick = closeDialog;
 form.addEventListener('input', () => {
+    syncCachets();
     checkDup();
     updateDaysHint();
 });
@@ -432,7 +483,7 @@ form.addEventListener('submit', async (e) => {
     err.textContent = '';
     const f = new FormData(form);
     const payload = Object.fromEntries(
-        ['employer', 'job_title', 'mission', 'hours', 'days_worked', 'start_date', 'end_date', 'gross', 'net', 'comment']
+        ['annexe', 'employer', 'job_title', 'mission', 'hours', 'cachets', 'days_worked', 'start_date', 'end_date', 'gross', 'net', 'comment']
             .map((k) => [k, f.get(k)]));
     const files = ['contrat', 'aem', 'bulletin']
         .map((k) => [k, f.get('file_' + k)])
