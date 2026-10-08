@@ -34,7 +34,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-APP_VERSION = "0.21"
+APP_VERSION = "0.22.1"
 
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
