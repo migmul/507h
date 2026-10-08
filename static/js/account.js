@@ -107,8 +107,8 @@ bind('#import-form', async (d, form) => {
     const r = await api('/api/account/import', 'POST', json);
     form.reset();
     await loadInfo();
-    return `${r.added} contrat(s), ${r.rights} droit(s) et ${r.payments} virement(s) importé(s), ` +
-        `${r.duplicates} doublon(s) ignoré(s).`;
+    return `${r.added} contrat(s), ${r.rights} droit(s), ${r.payments} virement(s), ` +
+        `${r.trainings} formation(s) importé(s), ${r.duplicates} doublon(s) ignoré(s).`;
 });
 
 $('#logout-all').onclick = async () => {

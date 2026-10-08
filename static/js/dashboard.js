@@ -364,6 +364,9 @@ async function loadSummary() {
     if (s.annexe === 10) {
         eq.textContent = `Soit environ ${nf1.format(s.hours / 12)} cachets sur ${Math.ceil(s.target / 12)}`;
     }
+    const tr = $('#training-eq');
+    tr.hidden = !(s.training_hours > 0);
+    tr.textContent = `Dont ${nf1.format(s.training_hours)} h de formation`;
 }
 
 function renderJobTitles() {
@@ -388,6 +391,7 @@ async function load() {
     renderJobTitles();
     await loadSummary();
     await loadLimits();
+    await loadTrainings();
 }
 
 /* ---------- Employeurs (saisie rapide) ---------- */
@@ -639,6 +643,102 @@ $('#limit-delete').onclick = async () => {
 $('#limit-add').onclick = () => openLimit(null);
 $('#limit-prev').onclick = () => { limitYear--; loadLimits(); };
 $('#limit-next').onclick = () => { limitYear++; loadLimits(); };
+
+/* ---------- Menu d'ajout ---------- */
+const addMenu = $('#add-menu');
+const addMenuBtn = $('#add-menu-btn');
+
+function toggleAddMenu(open) {
+    addMenu.hidden = !open;
+    addMenuBtn.setAttribute('aria-expanded', String(open));
+}
+
+addMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleAddMenu(addMenu.hidden);
+});
+document.addEventListener('click', () => toggleAddMenu(false));
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') toggleAddMenu(false);
+});
+$('#add-training').onclick = () => openTraining(null);
+
+/* ---------- Formations ---------- */
+const trainingDialog = $('#training-dialog');
+const trainingForm = $('#training-form');
+const TRAINING_CAP = 338;
+
+async function loadTrainings() {
+    renderTrainings((await api('/api/trainings')).trainings);
+}
+
+function renderTrainings(list) {
+    $('#trainings-card').hidden = list.length === 0;
+    const eligible = list.filter((t) => !t.paid_by_are).reduce((a, t) => a + t.hours, 0);
+    $('#trainings-sum').textContent =
+        `${nf1.format(Math.min(eligible, TRAINING_CAP))} / ${TRAINING_CAP} h retenues`;
+    $('#trainings-list').replaceChildren(...list.map(trainingItem));
+}
+
+function trainingItem(t) {
+    const box = el('div', undefined, 'item tappable');
+    box.addEventListener('click', () => openTraining(t));
+    const left = el('div');
+    left.append(el('strong', t.title));
+    const meta = [t.provider, `${fdate(t.start_date)} → ${fdate(t.end_date)}`].filter(Boolean).join(' · ');
+    left.append(el('span', meta, 'sub'));
+    const right = el('div', undefined, 'item-end');
+    right.append(el('span', `${nf1.format(t.hours)} h`));
+    if (t.paid_by_are) right.append(el('span', 'non retenue', 'tag'));
+    box.append(left, right);
+    return box;
+}
+
+function openTraining(t) {
+    trainingForm.reset();
+    trainingForm.querySelector('[data-error]').textContent = '';
+    trainingForm.elements.id.value = t ? t.id : '';
+    if (t) {
+        for (const k of ['title', 'provider', 'start_date', 'end_date', 'hours']) {
+            trainingForm.elements[k].value = t[k] ?? '';
+        }
+        trainingForm.elements.paid_by_are.checked = t.paid_by_are;
+    }
+    $('#training-delete').hidden = !t;
+    trainingDialog.querySelector('h2').textContent = t ? 'Modifier la formation' : 'Ajouter une formation';
+    trainingDialog.showModal();
+}
+
+trainingDialog.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => trainingDialog.close(); });
+let trainingDown = false;
+trainingDialog.addEventListener('mousedown', (e) => { trainingDown = e.target === trainingDialog; });
+trainingDialog.addEventListener('click', (e) => {
+    if (e.target === trainingDialog && trainingDown) trainingDialog.close();
+    trainingDown = false;
+});
+
+trainingForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(trainingForm));
+    f.paid_by_are = trainingForm.elements.paid_by_are.checked;
+    const id = f.id;
+    delete f.id;
+    try {
+        await api(id ? `/api/trainings/${id}` : '/api/trainings', id ? 'PUT' : 'POST', f);
+        trainingDialog.close();
+        load();      // recalcule aussi la progression des 507 h
+    } catch (ex) {
+        trainingForm.querySelector('[data-error]').textContent = ex.message;
+    }
+});
+
+$('#training-delete').onclick = async () => {
+    const id = trainingForm.elements.id.value;
+    if (!id || !confirm('Supprimer cette formation ?')) return;
+    await api(`/api/trainings/${id}`, 'DELETE');
+    trainingDialog.close();
+    load();
+};
 
 renderHead();
 load().finally(() => Boot.ready());

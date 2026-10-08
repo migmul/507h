@@ -3,6 +3,21 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.21] - 2026-10-08
+
+### Ajouté
+- Validation visuelle des formulaires : à l'envoi, chaque champ obligatoire vide ou invalide est entouré en rouge, le premier reçoit le focus et un message invite à corriger. Le contour rouge disparaît dès que le champ devient valide. Le comportement s'applique à tous les formulaires de l'application (contrats, droits, virements, plafonds, formations, compte, connexion) grâce au fichier `static/js/forms.js`.
+- Bouton « + Ajouter un contrat » scindé : une petite flèche à sa droite ouvre un menu (fermeture au clic extérieur ou avec Échap) qui propose « Ajouter une formation ».
+- Gestion des formations : les heures de formation professionnelle sont assimilées à des heures de travail pour la recherche des 507 h, dans la limite de 338 h (deux tiers du seuil, partagés avec l'enseignement). Une formation rémunérée par l'assurance chômage (AREF) est enregistrée mais n'est pas retenue.
+- Nouvelle carte « Formations » sur la page Contrats, repliée par défaut, visible dès qu'une formation existe : liste, total retenu sur 338 h, modification et suppression.
+- Les heures de formation retenues s'ajoutent à la progression des 507 h (tableau de bord, page Intermittence, heures de référence des droits). Le tableau de bord et la page Intermittence indiquent la part de formation.
+- Les formations sont exclues des statistiques de revenus, des répartitions, des plafonds de jours et de la détection de doublons : ce ne sont pas des contrats.
+- Export et import des formations (`formations` dans `507h-export.json`).
+- Nouvelle table `trainings`.
+
+### Modifié
+- Hauteur minimale commune des boutons du menu et style du bouton scindé.
+
 ## [0.20] - 2026-10-08
 
 ### Ajouté

@@ -34,7 +34,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-APP_VERSION = "0.20"
+APP_VERSION = "0.21"
 
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
@@ -177,6 +177,18 @@ CREATE TABLE IF NOT EXISTS day_limits (
     max_days INTEGER NOT NULL CHECK (max_days BETWEEN 1 AND 366)
 );
 CREATE INDEX IF NOT EXISTS idx_limits_user ON day_limits(user_id);
+CREATE TABLE IF NOT EXISTS trainings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT '',
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    hours REAL NOT NULL CHECK (hours > 0),
+    paid_by_are INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_trainings_user ON trainings(user_id, end_date);
 """
 
 
@@ -936,6 +948,7 @@ def summary():
             start, mode = fct + timedelta(days=1), "since_fct"
     t = period_totals(db, uid, start, today)
     return jsonify(hours=t["hours"], contracts=t["contracts"], target=HOURS_TARGET,
+                   training_hours=t["training_hours"],
                    window_start=start.isoformat(), window_end=today.isoformat(),
                    mode=mode, fct_date=fct_date, anniversary_date=da_iso,
                    annexe=user_annexe(db, uid), default_annexe=default_annexe(db, uid))
@@ -1035,18 +1048,21 @@ def import_data():
         raw_rights = [data["droit_are"]]
     raw_pay = data.get("virements", [])
     raw_limits = data.get("plafonds", [])
+    raw_train = data.get("formations", [])
     for name, lst in (("contracts", items), ("droits_are", raw_rights or []),
-                      ("virements", raw_pay), ("plafonds", raw_limits)):
+                      ("virements", raw_pay), ("plafonds", raw_limits),
+                      ("formations", raw_train)):
         if not isinstance(lst, list):
             return err(f"Format inattendu : « {name} » doit être une liste")
-    if len(items) > MAX_IMPORT_CONTRACTS or len(raw_pay) > MAX_IMPORT_CONTRACTS:
+    if max(len(items), len(raw_pay), len(raw_train)) > MAX_IMPORT_CONTRACTS:
         return err(f"{MAX_IMPORT_CONTRACTS} éléments maximum par liste")
 
-    errors, contracts, rights, pays, limits = [], [], [], [], []
+    errors, contracts, rights, pays, limits, trains = [], [], [], [], [], []
     for label, src, dst, fn in (("Contrat", items, contracts, parse_contract),
                                 ("Droit", raw_rights or [], rights, parse_rights),
                                 ("Virement", raw_pay, pays, parse_payment),
-                                ("Plafond", raw_limits, limits, parse_limit)):
+                                ("Plafond", raw_limits, limits, parse_limit),
+                                ("Formation", raw_train, trains, parse_training)):
         for i, it in enumerate(src, 1):
             try:
                 dst.append(fn(it))
@@ -1054,7 +1070,7 @@ def import_data():
                 errors.append(f"{label} n°{i} : {e}")
     if errors:
         return jsonify(error="Import refusé, rien n'a été modifié", details=errors[:10]), 400
-    if not (contracts or rights or pays or limits):
+    if not (contracts or rights or pays or limits or trains):
         return err("Aucune donnée à importer dans ce fichier")
 
     db, uid = get_db(), session["uid"]
@@ -1067,45 +1083,35 @@ def import_data():
         "SELECT paid_on, month_covered, amount_cents FROM payments WHERE user_id=?", (uid,))}
     seen_l = {(r["label"].lower(), r["employer_match"].lower()) for r in db.execute(
         "SELECT label, employer_match FROM day_limits WHERE user_id=?", (uid,))}
-    new_c, new_r, new_p, new_l, dup = [], [], [], [], 0
-    for v in contracts:     # (employer, mission, hours, start, end, gross, net, comment, job, days)
-        k = (v[0].lower(), v[1], v[3], v[4], v[2])
-        if k in seen_c:
-            dup += 1
-        else:
-            seen_c.add(k)
-            new_c.append(v)
-    for v in rights:        # (annexe, fct, start, da, aj, opening, note)
-        k = (v[0], v[1], v[2])
-        if k in seen_r:
-            dup += 1
-        else:
-            seen_r.add(k)
-            new_r.append(v)
-    for v in pays:          # (paid_on, month, amount, days, note)
-        k = (v[0], v[1], v[2])
-        if k in seen_p:
-            dup += 1
-        else:
-            seen_p.add(k)
-            new_p.append(v)
-    for v in limits:        # (label, match, max_days)
-        k = (v[0].lower(), v[1].lower())
-        if k in seen_l:
-            dup += 1
-        else:
-            seen_l.add(k)
-            new_l.append(v)
-    counts = {
-        "rights": (db.execute("SELECT COUNT(*) FROM rights WHERE user_id=?", (uid,)).fetchone()[0],
-                   len(new_r), MAX_RIGHTS),
-        "payments": (db.execute("SELECT COUNT(*) FROM payments WHERE user_id=?", (uid,)).fetchone()[0],
-                     len(new_p), MAX_PAYMENTS),
-        "limits": (db.execute("SELECT COUNT(*) FROM day_limits WHERE user_id=?", (uid,)).fetchone()[0],
-                   len(new_l), MAX_LIMITS),
-    }
-    if any(have + new > cap for have, new, cap in counts.values()):
-        return err("Limite de droits, de virements ou de plafonds dépassée")
+    seen_t = {(r["title"].lower(), r["start_date"], r["end_date"], r["hours"]) for r in db.execute(
+        "SELECT title, start_date, end_date, hours FROM trainings WHERE user_id=?", (uid,))}
+
+    def fresh(values, seen, key):
+        out, dup = [], 0
+        for v in values:
+            k = key(v)
+            if k in seen:
+                dup += 1
+            else:
+                seen.add(k)
+                out.append(v)
+        return out, dup
+
+    # contrat : (employeur, mission, heures, début, fin, ...) ; droit : (annexe, FCT, début, ...)
+    # virement : (date, mois, montant, ...) ; plafond : (nom, texte, max) ; formation : (titre, organisme, heures, début, fin, ...)
+    new_c, d1 = fresh(contracts, seen_c, lambda v: (v[0].lower(), v[1], v[3], v[4], v[2]))
+    new_r, d2 = fresh(rights, seen_r, lambda v: (v[0], v[1], v[2]))
+    new_p, d3 = fresh(pays, seen_p, lambda v: (v[0], v[1], v[2]))
+    new_l, d4 = fresh(limits, seen_l, lambda v: (v[0].lower(), v[1].lower()))
+    new_t, d5 = fresh(trains, seen_t, lambda v: (v[0].lower(), v[3], v[4], v[2]))
+    dup = d1 + d2 + d3 + d4 + d5
+
+    counts = (("rights", "rights", new_r, MAX_RIGHTS), ("payments", "payments", new_p, MAX_PAYMENTS),
+              ("day_limits", "limits", new_l, MAX_LIMITS), ("trainings", "trainings", new_t, MAX_TRAININGS))
+    for table, _, new, cap in counts:
+        have = db.execute(f"SELECT COUNT(*) FROM {table} WHERE user_id=?", (uid,)).fetchone()[0]
+        if have + len(new) > cap:
+            return err("Limite de droits, de virements, de plafonds ou de formations dépassée")
     try:
         db.executemany(
             "INSERT INTO contracts(user_id, employer, mission, hours, start_date, end_date,"
@@ -1116,12 +1122,16 @@ def import_data():
         db.executemany(PAYMENT_INSERT, [(uid, *v) for v in new_p])
         db.executemany("INSERT INTO day_limits(user_id, label, employer_match, max_days)"
                        " VALUES (?,?,?,?)", [(uid, *v) for v in new_l])
+        db.executemany(
+            "INSERT INTO trainings(user_id, title, provider, hours, start_date, end_date,"
+            " paid_by_are) VALUES (?,?,?,?,?,?,?)",
+            [(uid, v[0], v[1], v[2], v[3], v[4], v[5]) for v in new_t])
         db.commit()
     except sqlite3.Error:
         db.rollback()
         return err("Erreur lors de l'import, rien n'a été modifié", 500)
     return jsonify(added=len(new_c), rights=len(new_r), payments=len(new_p),
-                   limits=len(new_l), duplicates=dup)
+                   limits=len(new_l), trainings=len(new_t), duplicates=dup)
 
 @app.get("/api/account/export")
 @login_required
@@ -1148,6 +1158,8 @@ def export_account():
                            "max_days": r["max_days"]}
                           for r in db.execute("SELECT * FROM day_limits WHERE user_id=? ORDER BY id",
                                               (uid,))],
+             "formations": [{k: v for k, v in t.items() if k != "id"}
+                            for t in trainings_list(db, uid)],
              "contracts": contracts}, ensure_ascii=False, indent=2))
         for d in docs:
             try:
@@ -1179,6 +1191,7 @@ def delete_account():
 
 # ---------- Intermittence ----------
 HOURS_TARGET = 507
+TRAINING_CAP = 338
 OPENING_TYPES = ("first", "renewal", "anticipated")
 MAX_RIGHTS = 50
 MAX_PAYMENTS = 1000
@@ -1192,10 +1205,11 @@ def add_year(d):
 
 
 def period_totals(db, uid, start, end):
-    zero = {"hours": 0.0, "gross": 0.0, "contracts": 0, "missing_gross": 0}
+    zero = {"hours": 0.0, "work_hours": 0.0, "training_hours": 0.0,
+            "gross": 0.0, "contracts": 0, "missing_gross": 0}
     if start > end:
         return zero
-    hours = gross = 0.0
+    work = gross = 0.0
     missing = n = 0
     rows = db.execute(
         "SELECT hours, start_date, end_date, gross_cents FROM contracts"
@@ -1204,13 +1218,24 @@ def period_totals(db, uid, start, end):
     for r in rows:
         s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
         ratio = ((min(e, end) - max(s, start)).days + 1) / ((e - s).days + 1)
-        hours += r["hours"] * ratio
+        work += r["hours"] * ratio
         if r["gross_cents"] is None:
             missing += 1
         else:
             gross += r["gross_cents"] / 100 * ratio
         n += 1
-    return {"hours": round(hours, 2), "gross": round(gross, 2),
+
+    training = 0.0
+    for t in db.execute(
+            "SELECT hours, start_date, end_date FROM trainings"
+            " WHERE user_id=? AND paid_by_are=0 AND end_date >= ? AND start_date <= ?",
+            (uid, start.isoformat(), end.isoformat())):
+        s, e = date.fromisoformat(t["start_date"]), date.fromisoformat(t["end_date"])
+        training += t["hours"] * ((min(e, end) - max(s, start)).days + 1) / ((e - s).days + 1)
+    counted = min(training, TRAINING_CAP)
+
+    return {"hours": round(work + counted, 2), "work_hours": round(work, 2),
+            "training_hours": round(counted, 2), "gross": round(gross, 2),
             "contracts": n, "missing_gross": missing}
 
 
@@ -1285,6 +1310,7 @@ def build_overview(db, uid):
             "hours_planned": round(total["hours"] - done["hours"], 2),
             "hours_needed": round(needed, 1), "per_week": per_week,
             "can_request_early": done["hours"] >= HOURS_TARGET and days_left > 0},
+            "training_hours": total["training_hours"],
     }
 
 
@@ -1994,6 +2020,91 @@ def save_preferences():
     db.execute("UPDATE users SET default_annexe=? WHERE id=?", (annexe, session["uid"]))
     db.commit()
     return jsonify(ok=True)
+
+MAX_TRAININGS = 200
+
+
+def parse_training(d):
+    if not isinstance(d, dict):
+        raise ValueError("Données invalides")
+    title = " ".join(str(d.get("title", "")).split())
+    provider = " ".join(str(d.get("provider", "") or "").split())
+    if not title or len(title) > 160:
+        raise ValueError("Intitulé requis (160 caractères max)")
+    if len(provider) > 120:
+        raise ValueError("Organisme : 120 caractères max")
+    try:
+        hours = float(str(d.get("hours")).replace(",", "."))
+    except ValueError:
+        raise ValueError("Nombre d'heures invalide")
+    if not (0 < hours <= 1000):
+        raise ValueError("Heures hors limites")
+    try:
+        start = date.fromisoformat(str(d.get("start_date")))
+        end = date.fromisoformat(str(d.get("end_date")))
+    except ValueError:
+        raise ValueError("Dates invalides")
+    if end < start:
+        raise ValueError("La date de fin précède la date de début")
+    paid = 1 if d.get("paid_by_are") in (True, 1, "1", "true", "on") else 0
+    return (title, provider, hours, start.isoformat(), end.isoformat(), paid)
+
+
+TRAINING_INSERT = ("INSERT INTO trainings(user_id, title, provider, hours, start_date,"
+                   " end_date, paid_by_are) VALUES (?,?,?,?,?,?,?)")
+
+
+def trainings_list(db, uid):
+    return [{"id": r["id"], "title": r["title"], "provider": r["provider"],
+             "hours": r["hours"], "start_date": r["start_date"], "end_date": r["end_date"],
+             "paid_by_are": bool(r["paid_by_are"])}
+            for r in db.execute("SELECT * FROM trainings WHERE user_id=?"
+                                " ORDER BY end_date DESC, id DESC", (uid,))]
+
+
+@app.get("/api/trainings")
+@login_required
+def list_trainings():
+    return jsonify(trainings=trainings_list(get_db(), session["uid"]), cap=TRAINING_CAP)
+
+
+@app.post("/api/trainings")
+@login_required
+def add_training():
+    try:
+        vals = parse_training(request.get_json(silent=True))
+    except ValueError as e:
+        return err(str(e))
+    db, uid = get_db(), session["uid"]
+    if db.execute("SELECT COUNT(*) FROM trainings WHERE user_id=?", (uid,)).fetchone()[0] >= MAX_TRAININGS:
+        return err(f"{MAX_TRAININGS} formations maximum")
+    cur = db.execute(TRAINING_INSERT, (uid, *vals))
+    db.commit()
+    return jsonify(id=cur.lastrowid), 201
+
+
+@app.put("/api/trainings/<int:tid>")
+@login_required
+def edit_training(tid):
+    try:
+        vals = parse_training(request.get_json(silent=True))
+    except ValueError as e:
+        return err(str(e))
+    db = get_db()
+    cur = db.execute(
+        "UPDATE trainings SET title=?, provider=?, hours=?, start_date=?, end_date=?,"
+        " paid_by_are=? WHERE id=? AND user_id=?", (*vals, tid, session["uid"]))
+    db.commit()
+    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
+
+
+@app.delete("/api/trainings/<int:tid>")
+@login_required
+def delete_training(tid):
+    db = get_db()
+    cur = db.execute("DELETE FROM trainings WHERE id=? AND user_id=?", (tid, session["uid"]))
+    db.commit()
+    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", debug=os.environ.get("DEV") == "1", port=5007)

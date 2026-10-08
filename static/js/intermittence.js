@@ -83,6 +83,7 @@ function renderCurrent(o) {
         ['Heures comptées depuis', fdate(p.window_start)],
         ['Heures réalisées', fh(p.hours_done)],
         ['Heures prévues (contrats à venir)', fh(p.hours_planned)],
+        ...(p.training_hours > 0 ? [['Dont formation (retenue)', fh(p.training_hours)]] : []),
     ]);
 }
 

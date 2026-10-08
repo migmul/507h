@@ -14,6 +14,7 @@
                     <p><strong id="hours">0</strong> / 507 h <span class="muted" id="range"></span></p>
                     <p class="muted small" id="remaining"></p>
                     <p class="muted small" id="cachets-eq" hidden></p>
+                    <p class="muted small" id="training-eq" hidden></p>
                 </div>
                 <p class="pct-big" id="pct"></p>
             </div>
@@ -39,10 +40,30 @@
         </details>
     </section>
 
+    <section class="card" id="trainings-card" hidden>
+        <details class="more fold">
+            <summary class="has-sum">
+                <span>Formations</span>
+                <span class="fold-sum" id="trainings-sum"></span>
+            </summary>
+            <div id="trainings-list"></div>
+            <p class="muted small">Heures de formation professionnelle assimilées à du travail, dans la limite de 338 h avec l'enseignement.</p>
+        </details>
+    </section>
+
     <section class="card">
         <div class="card-head">
             <h2>Mes contrats</h2>
-            <button class="primary inline" id="add-btn" type="button">+ Ajouter<span class="hide-mobile"> un contrat</span></button>
+            <div class="split">
+                <button class="primary inline" id="add-btn" type="button">+ Ajouter<span class="hide-mobile"> un contrat</span></button>
+                <button class="primary inline split-toggle" id="add-menu-btn" type="button"
+                        aria-haspopup="menu" aria-expanded="false" aria-label="Autres ajouts">
+                    <span class="chev"></span>
+                </button>
+                <div class="menu" id="add-menu" role="menu" hidden>
+                    <button type="button" role="menuitem" id="add-training">Ajouter une formation</button>
+                </div>
+            </div>
         </div>
 
         <div class="toolbar" id="toolbar">
@@ -163,6 +184,32 @@
         </div>
     </form>
 </dialog>
+
+<!-- MODALE - AJOUT FORMATION -->
+
+<dialog id="training-dialog">
+    <form id="training-form" novalidate>
+        <div class="card-head">
+            <h2>Formation</h2>
+            <button type="button" class="ghost" data-close aria-label="Fermer">✕</button>
+        </div>
+        <input type="hidden" name="id">
+        <label class="full">Intitulé <input name="title" maxlength="160" required placeholder="Étalonnage sous DaVinci Resolve"></label>
+        <label class="full">Organisme (optionnel) <input name="provider" maxlength="120"></label>
+        <label>Début <input type="date" name="start_date" required></label>
+        <label>Fin <input type="date" name="end_date" required></label>
+        <label class="full">Heures de formation <input type="number" name="hours" step="0.5" min="0.5" required></label>
+        <label class="check full"><input type="checkbox" name="paid_by_are"> Rémunérée par l'assurance chômage (AREF)</label>
+        <p class="muted small full">Seules les formations des livres III et IV de la 6e partie du code du travail, non rémunérées par l'assurance chômage, sont retenues pour les 507 h, dans la limite de 338 h (formation et enseignement confondus). Ces heures n'entrent pas dans le calcul de l'allocation.</p>
+        <p class="error full" role="alert" data-error></p>
+        <div class="row full">
+            <button class="primary inline" type="submit">Enregistrer</button>
+            <button class="ghost" type="button" data-close>Annuler</button>
+            <button class="ghost danger push" type="button" id="training-delete" hidden>Supprimer</button>
+        </div>
+    </form>
+</dialog>
+
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>

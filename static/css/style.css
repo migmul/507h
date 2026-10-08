@@ -435,6 +435,19 @@ select.auto {
     color: var(--ok);
 }
 
+input.invalid,
+select.invalid,
+textarea.invalid {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+input.invalid:focus,
+select.invalid:focus,
+textarea.invalid:focus {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 30%, transparent);
+}
 
 /* ==========================================================================
    7. Boutons
@@ -544,6 +557,55 @@ a.btn:hover {
 
 .tabs.seg {
     margin-top: 0;
+}
+
+/* Bouton scindé : action principale + flèche qui ouvre un menu */
+.split {
+    position: relative;
+    display: inline-flex;
+}
+
+.split > .primary:first-child {
+    border-radius: 8px 0 0 8px;
+}
+
+.split > .split-toggle {
+    padding-inline: .7rem;
+    border-radius: 0 8px 8px 0;
+    border-left: 1px solid color-mix(in srgb, #fff 35%, transparent);
+}
+
+.chev {
+    display: inline-block;
+    width: .45em;
+    height: .45em;
+    margin-top: -.2em;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+}
+
+.menu {
+    position: absolute;
+    top: calc(100% + .35rem);
+    right: 0;
+    z-index: 40;
+    min-width: 13rem;
+    padding: .35rem;
+    background: var(--surface-2);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px var(--shadow);
+}
+
+.menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+}
+
+.menu button:hover {
+    background: var(--hover-strong);
 }
 
 /* ==========================================================================
@@ -1156,6 +1218,25 @@ details[open] > summary .fold-sum {
         to right,
         var(--danger) var(--done, 100%),
         color-mix(in srgb, var(--danger) 40%, transparent) var(--done, 100%));
+}
+
+.item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: .7rem 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.item:last-of-type {
+    border-bottom: 0;
+}
+
+.item-end {
+    flex: none;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 /* ==========================================================================
@@ -1948,5 +2029,9 @@ body {
     /* Le fond teinté déborde un peu de la carte : on ne le coupe pas */
     .table-wrap:has(> .t-rights) {
         overflow: visible;
+    }
+
+    .split > .split-toggle {
+        min-height: 40px;
     }
 }
