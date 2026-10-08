@@ -17,8 +17,8 @@ import segno
 import unicodedata
 from dotenv import load_dotenv
 from email.message import EmailMessage
-from email.utils import formatdate, make_msgid
-from urllib.parse import quote
+from email.utils import formatdate, make_msgid, parseaddr
+from urllib.parse import quote, urlparse
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
@@ -444,19 +444,42 @@ def deliver(msg):
         app.logger.exception("Échec d'envoi d'e-mail")
 
 
-def send_mail(to, subject, text):
+LOGO_EMAIL = BASE / "static" / "img" / "logo-email.png"
+
+
+def send_mail(to, subject, text, html=None):
     if os.environ.get("MAIL_CONSOLE") == "1":
         app.logger.warning("MAIL à %s : %s\n%s", to, subject, text)
     if mail_mode() != "smtp":
         return
+    sender = os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER", "")
     msg = EmailMessage()
-    msg["From"] = os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER", "")
+    msg["From"] = sender
     msg["To"] = to
     msg["Subject"] = subject
     msg["Date"] = formatdate(localtime=True)
-    msg["Message-ID"] = make_msgid()
+    # identifiant de message au domaine de l'expéditeur (meilleure cohérence avec SPF et DKIM)
+    domain = parseaddr(sender)[1].split("@")[-1] or urlparse(os.environ["APP_BASE_URL"]).hostname
+    msg["Message-ID"] = make_msgid(domain=domain)
+    msg["Auto-Submitted"] = "auto-generated"
     msg.set_content(text)
+    if html:
+        msg.add_alternative(html, subtype="html")
     threading.Thread(target=deliver, args=(msg,), daemon=True).start()
+
+
+def action_mail_context(subject, **fields):
+    site = base_url()
+    return {"subject": subject, "site_url": site,
+            "logo_url": f"{site}/static/img/logo-email.png" if LOGO_EMAIL.exists() else None,
+            **fields}
+
+
+def send_action_mail(to, subject, **fields):
+    """E-mail d'action : titre, introduction, bouton, validité, mise en garde, version HTML et texte."""
+    ctx = action_mail_context(subject, **fields)
+    send_mail(to, subject, render_template("mail/action.txt", **ctx),
+              render_template("mail/action.html", **ctx))
 
 
 # --- Jetons de lien ---
@@ -489,10 +512,16 @@ def consume_token(db, raw, purposes):
 
 def send_verification(uid, email):
     raw = make_token(get_db(), uid, "verify")
-    send_mail(email, "507h – Confirme ton adresse e-mail",
-              "Bonjour,\n\nConfirme ton adresse e-mail pour 507h en ouvrant ce lien "
-              f"(valable 48 heures) :\n{base_url()}/verify?token={raw}\n\n"
-              "Si tu n'es pas à l'origine de cette demande, ignore ce message.\n")
+    send_action_mail(
+        email, "507h – Confirme ton adresse e-mail",
+        heading="Confirme ton adresse e-mail",
+        intro="Bienvenue sur 507h ! Confirme ton adresse pour finaliser ton inscription "
+              "et pouvoir récupérer ton mot de passe en cas d'oubli.",
+        button="Confirmer mon adresse",
+        link=f"{base_url()}/verify?token={raw}",
+        expires="Ce lien est valable 48 heures.",
+        outro="Si tu n'as pas créé de compte sur 507h, tu peux ignorer ce message.",
+        preheader="Un clic pour confirmer ton adresse e-mail.")
 
 
 # --- Double authentification (TOTP, RFC 6238) ---
@@ -998,10 +1027,16 @@ def change_email():
     taken = db.execute("SELECT 1 FROM users WHERE email=? AND id<>?", (email, uid)).fetchone()
     if not taken:       # même réponse dans tous les cas : pas de fuite sur les adresses existantes
         raw = make_token(db, uid, "email_change", email)
-        send_mail(email, "507h – Confirme ta nouvelle adresse e-mail",
-                  "Bonjour,\n\nConfirme ta nouvelle adresse e-mail pour 507h en ouvrant ce lien "
-                  f"(valable 24 heures) :\n{base_url()}/verify?token={raw}\n\n"
-                  "Si tu n'es pas à l'origine de cette demande, ignore ce message.\n")
+        send_action_mail(
+            email, "507h – Confirme ta nouvelle adresse e-mail",
+            heading="Confirme ta nouvelle adresse",
+            intro="Tu as demandé à utiliser cette adresse pour ton compte 507h. "
+                  "Confirme-la pour que le changement soit pris en compte.",
+            button="Confirmer la nouvelle adresse",
+            link=f"{base_url()}/verify?token={raw}",
+            expires="Ce lien est valable 24 heures. Ton ancienne adresse reste valable jusqu'à la confirmation.",
+            outro="Si tu n'es pas à l'origine de cette demande, ignore ce message : rien ne changera.",
+            preheader="Confirme ta nouvelle adresse e-mail 507h.")
     return jsonify(ok=True, message="Un lien de confirmation vient d'être envoyé à la nouvelle "
                                     "adresse. Ton adresse actuelle reste valable jusqu'à sa confirmation.")
 
@@ -1755,11 +1790,16 @@ def forgot_password():
         u = db.execute("SELECT id FROM users WHERE email=? AND email_verified=1", (email,)).fetchone()
         if u:
             raw = make_token(db, u["id"], "reset")
-            send_mail(email, "507h – Réinitialisation du mot de passe",
-                      "Bonjour,\n\nPour choisir un nouveau mot de passe, ouvre ce lien "
-                      f"(valable 1 heure) :\n{base_url()}/reset?token={raw}\n\n"
-                      "Si tu n'es pas à l'origine de cette demande, ignore ce message : "
-                      "ton mot de passe ne changera pas.\n")
+            send_action_mail(
+                email, "507h – Réinitialisation du mot de passe",
+                heading="Choisis un nouveau mot de passe",
+                intro="Tu as demandé la réinitialisation du mot de passe de ton compte 507h.",
+                button="Choisir un nouveau mot de passe",
+                link=f"{base_url()}/reset?token={raw}",
+                expires="Ce lien est valable 1 heure et ne peut servir qu'une fois.",
+                outro="Si tu n'es pas à l'origine de cette demande, ignore ce message : ton mot de passe "
+                      "ne changera pas. Après un changement, tous tes appareils sont déconnectés.",
+                preheader="Lien valable 1 heure pour choisir un nouveau mot de passe.")
     return jsonify(ok=True, message="Si un compte vérifié existe pour cette adresse, "
                                     "un e-mail vient d'être envoyé.")
 
@@ -2105,6 +2145,20 @@ def delete_training(tid):
     cur = db.execute("DELETE FROM trainings WHERE id=? AND user_id=?", (tid, session["uid"]))
     db.commit()
     return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
+
+if os.environ.get("DEV") == "1":
+    @app.get("/dev/mail")
+    def mail_preview():
+        ctx = action_mail_context(
+            "Aperçu", heading="Confirme ton adresse e-mail",
+            intro="Bienvenue sur 507h ! Confirme ton adresse pour finaliser ton inscription.",
+            button="Confirmer mon adresse", link=f"{base_url()}/verify?token=exemple",
+            expires="Ce lien est valable 48 heures.",
+            outro="Si tu n'as pas créé de compte sur 507h, tu peux ignorer ce message.",
+            preheader="Un clic pour confirmer ton adresse e-mail.")
+        if request.args.get("text"):
+            return Response(render_template("mail/action.txt", **ctx), mimetype="text/plain")
+        return render_template("mail/action.html", **ctx)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", debug=os.environ.get("DEV") == "1", port=5007)

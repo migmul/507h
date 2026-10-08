@@ -3,6 +3,19 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.22] - 2026-10-08
+
+### Ajouté
+- E-mails au format HTML professionnel (vérification de l'adresse, confirmation d'un changement d'adresse, réinitialisation du mot de passe) : carte centrée de 560 px, nom 507h en en-tête, bouton d'action, durée de validité du lien, rappel « si ce n'est pas toi », lien de secours à copier et pied de page. Compatible mode sombre (clients qui le gèrent) et mobile.
+- Version texte brut de chaque e-mail (message multipart) pour les clients sans HTML et pour la délivrabilité.
+- Modèles `templates/mail/action.html` et `templates/mail/action.txt`, partagés par tous les e-mails d'action.
+- Logo d'e-mail automatique : si le fichier `static/img/logo-email.png` existe, il remplace le nom 507h en texte dans l'en-tête des e-mails, sans autre modification.
+- Prévisualisation des e-mails dans le navigateur avec `DEV=1` : `/dev/mail` (HTML) et `/dev/mail?text=1` (texte).
+- En-tête `Auto-Submitted` et identifiant de message au domaine de l'expéditeur.
+
+### Modifié
+- `send_mail` accepte une version HTML en plus du texte ; les trois e-mails existants passent par la nouvelle fonction `send_action_mail`.
+
 ## [0.21] - 2026-10-08
 
 ### Ajouté

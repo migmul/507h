@@ -1,0 +1,13 @@
+{{ heading }}
+
+{{ intro }}
+
+{{ button }} : {{ link }}
+
+{{ expires }}
+
+{{ outro }}
+
+--
+507h · Suivi des 507 heures des intermittents du spectacle
+{{ site_url }}
