@@ -1,16 +1,3 @@
-const $ = (s) => document.querySelector(s);
-const csrf = document.querySelector('meta[name="csrf-token"]').content;
-
-async function post(path, body) {
-    const res = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-        body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, data };
-}
-
 function setMsg(node, text, ok = false) {
     node.textContent = text;
     node.classList.toggle('ok', ok);
@@ -26,8 +13,12 @@ if (forgotForm) {
     forgotForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         setMsg(msg, '');
-        const r = await post('/api/password/forgot', { email: new FormData(forgotForm).get('email') });
-        setMsg(msg, r.ok ? r.data.message : (r.data.error || 'Erreur'), r.ok);
+                try {
+            const r = await api('/api/password/forgot', 'POST', { email: new FormData(forgotForm).get('email') });
+            setMsg(msg, r.message, true);
+        } catch (ex) {
+            setMsg(msg, ex.message);
+        }
     });
 }
 
@@ -43,12 +34,12 @@ if (resetForm) {
             setMsg(msg, 'Les mots de passe ne correspondent pas');
             return;
         }
-        const r = await post('/api/password/reset', { token, ...f });
-        if (r.ok) {
+                try {
+            await api('/api/password/reset', 'POST', { token, ...f });
             setMsg(msg, 'Mot de passe modifié. Tu peux te connecter.', true);
             resetForm.querySelector('button[type=submit]').hidden = true;
-        } else {
-            setMsg(msg, r.data.error || 'Erreur');
+        } catch (ex) {
+            setMsg(msg, ex.message);
         }
     });
 }
@@ -61,13 +52,13 @@ if (confirmBtn) {
         confirmBtn.hidden = true;
     }
     confirmBtn.addEventListener('click', async () => {
-        const r = await post('/api/email/confirm', { token });
-        if (r.ok) {
-            setMsg(msg, r.data.kind === 'email_change'
+                try {
+            const r = await api('/api/email/confirm', 'POST', { token });
+            setMsg(msg, r.kind === 'email_change'
                 ? 'Ta nouvelle adresse e-mail est confirmée.' : 'Ton adresse e-mail est vérifiée.', true);
             confirmBtn.hidden = true;
-        } else {
-            setMsg(msg, r.data.error || 'Erreur');
+        } catch (ex) {
+            setMsg(msg, ex.message);
         }
     });
 }

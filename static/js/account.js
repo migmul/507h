@@ -1,23 +1,3 @@
-const $ = (s) => document.querySelector(s);
-const csrf = document.querySelector('meta[name="csrf-token"]').content;
-
-async function api(path, method = 'GET', body) {
-    const headers = { 'X-CSRF-Token': csrf };
-    if (body) headers['Content-Type'] = 'application/json';
-    const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
-    if (res.status === 401) {
-        location.href = '/login';
-        return;
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-        const e = new Error(data.error || 'Erreur');
-        e.details = data.details;
-        throw e;
-    }
-    return data;
-}
-
 function setMsg(node, text, ok = false) {
     node.textContent = text;
     node.classList.toggle('ok', ok);
@@ -108,7 +88,7 @@ bind('#import-form', async (d, form) => {
     form.reset();
     await loadInfo();
     return `${r.added} contrat(s), ${r.rights} droit(s), ${r.payments} virement(s), ` +
-        `${r.trainings} formation(s) importé(s), ${r.duplicates} doublon(s) ignoré(s).`;
+        `${r.limits} plafond(s), ${r.trainings} formation(s) importé(s), ${r.duplicates} doublon(s) ignoré(s).`;
 });
 
 $('#logout-all').onclick = async () => {

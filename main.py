@@ -1,41 +1,47 @@
-import hashlib
-import io
-import os
-import secrets
-import sqlite3
-import time
-import json, shutil, zipfile
-import re
-import statistics
+"""507h : suivi des 507 heures des intermittents du spectacle (application Flask)."""
 import base64
+import hashlib
 import hmac
+import io
+import json
+import os
+import re
+import secrets
+import shutil
 import smtplib
+import sqlite3
 import ssl
+import statistics
 import struct
 import threading
-import segno
+import time
 import unicodedata
-from dotenv import load_dotenv
-from email.message import EmailMessage
-from email.utils import formatdate, make_msgid, parseaddr
-from urllib.parse import quote, urlparse
+import zipfile
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
+from email.message import EmailMessage
+from email.utils import formatdate, make_msgid, parseaddr
 from functools import wraps
 from pathlib import Path
+from urllib.parse import quote, urlparse
 
+import segno
 from cryptography.fernet import Fernet, InvalidToken
+from dotenv import load_dotenv
 from flask import (
     Flask, Response, abort, g, jsonify, redirect, render_template,
     request, send_file, session, url_for,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
-from werkzeug.middleware.proxy_fix import ProxyFix
+
+# ===========================================================================
+# Configuration
+# ===========================================================================
 
 APP_VERSION = "0.22.1"
-
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
 INSTANCE = BASE / "instance"
@@ -44,12 +50,39 @@ DB_PATH = INSTANCE / "507h.db"
 UPLOAD_DIR = INSTANCE / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True, mode=0o700)
 
+# ===========================================================================
+# Constantes et limites
+# ===========================================================================
+
+MAX_PDF = 10 * 1024 * 1024
 MAX_IMPORT_BYTES = 2 * 1024 * 1024
 MAX_IMPORT_CONTRACTS = 2000
-MAX_PDF = 10 * 1024 * 1024
 MAX_DOCS_PER_CONTRACT = 12
 KINDS = {"contrat", "aem", "bulletin"}
+MAX_RIGHTS = 50
+MAX_PAYMENTS = 1000
+MAX_LIMITS = 10
+MAX_TRAININGS = 200
+HOURS_TARGET = 507 # heures requises pour intermittence
+TRAINING_CAP = 338 # max heures de formation par droit
+HOURS_PER_DAY = 8 # heures par jour par défaut
+CACHET_HOURS = 12 # durée par défaut d'un cachet
+OPENING_TYPES = ("first", "renewal", "anticipated")
+TOKEN_TTL = {"verify": 48 * 3600, "reset": 3600, "email_change": 24 * 3600}
+TOTP_STEP = 30
+EMAIL_RE = re.compile(r"^[^@\s<>,;\"']+@[^@\s<>,;\"']+\.[^@\s<>,;\"']+$")
+MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
+
+PERIODS = {"12m": "12 derniers mois", "year": "Année en cours", "prev_year": "Année précédente",
+               "right": "Droit en cours", "all": "Depuis le début"}
+
+
+LOGO_EMAIL = BASE / "static" / "img" / "logo-email.png"
+
+# ===========================================================================
+# Application Flask
+# ===========================================================================
 
 def load_secret(env_name, filename, generator):
     env = os.environ.get(env_name)
@@ -63,6 +96,8 @@ def load_secret(env_name, filename, generator):
 
 
 app = Flask(__name__)
+
+
 app.config.update(
     SECRET_KEY=load_secret("SECRET_KEY", "secret_key", lambda: secrets.token_hex(32)),
     SESSION_COOKIE_HTTPONLY=True,
@@ -72,21 +107,31 @@ app.config.update(
     MAX_CONTENT_LENGTH=MAX_PDF + 1024 * 1024,
 )
 
+
 # Derrière un reverse proxy : lit l'IP, le protocole et l'hôte réels dans X-Forwarded-*
 hops = int(os.environ.get("PROXY_HOPS", "0") or 0)
+
+
 if hops:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops)
+
 
 FERNET = Fernet(load_secret("FILE_KEY", "file_key", lambda: Fernet.generate_key().decode()))
 app.jinja_env.globals["app_version"] = APP_VERSION
 
+
 if os.environ.get("MAIL_CONSOLE") == "1":
     app.logger.warning("MAIL_CONSOLE actif : le contenu des e-mails (liens compris) "
                        "est écrit dans les journaux.")
+
+
 if os.environ.get("SMTP_HOST") and not os.environ.get("APP_BASE_URL"):
     app.logger.warning("SMTP_HOST défini sans APP_BASE_URL : l'envoi d'e-mails est désactivé.")
 
-# ---------- Base de données ----------
+# ===========================================================================
+# Base de données
+# ===========================================================================
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,23 +237,43 @@ CREATE INDEX IF NOT EXISTS idx_trainings_user ON trainings(user_id, end_date);
 """
 
 
+def migrate_rights(c):
+    cols = {r[1] for r in c.execute("PRAGMA table_info(are_rights)")}
+    if not cols:        # installation neuve, ou déjà migrée
+        return
+    if "aj_net_cents" not in cols:
+        c.execute("ALTER TABLE are_rights ADD COLUMN aj_net_cents INTEGER")
+    c.execute(
+        "INSERT INTO rights(user_id, annexe, fct_date, start_date, anniversary_date,"
+        " aj_net_cents, opening_type)"
+        " SELECT user_id, annexe, fct_date, start_date, anniversary_date,"
+        " aj_net_cents, 'renewal' FROM are_rights")
+    c.execute("ALTER TABLE are_rights RENAME TO are_rights_old")
+
+
+def columns(c, table):
+    return {r[1]: r for r in c.execute(f"PRAGMA table_info({table})")}
+
+
+def add_column(c, table, name, ddl):
+    """Ajoute la colonne si elle manque ; retourne True si elle vient d'être créée."""
+    if name in columns(c, table):
+        return False
+    c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+    return True
+
+
 def migrate():
     with sqlite3.connect(DB_PATH) as c:
+        c.execute("PRAGMA journal_mode = WAL")      # réglage persistant : inutile à chaque connexion
         c.executescript(SCHEMA)
-        info = {r[1]: r for r in c.execute("PRAGMA table_info(contracts)")}
-        if "comment" not in info:
-            c.execute("ALTER TABLE contracts ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
-        ucols = {r[1] for r in c.execute("PRAGMA table_info(users)")}
-        if "session_version" not in ucols:
-            c.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0")
-        for col, ddl in (
-                ("email_verified", "INTEGER NOT NULL DEFAULT 0"),
-                ("totp_secret", "TEXT"),
-                ("totp_enabled", "INTEGER NOT NULL DEFAULT 0"),
-                ("totp_last_step", "INTEGER NOT NULL DEFAULT 0")):
-            if col not in ucols:
-                c.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
-        if info["gross_cents"][3] == 1:  # colonne encore NOT NULL -> reconstruction (v0.2)
+        add_column(c, "contracts", "comment", "TEXT NOT NULL DEFAULT ''")
+        add_column(c, "users", "session_version", "INTEGER NOT NULL DEFAULT 0")
+        add_column(c, "users", "email_verified", "INTEGER NOT NULL DEFAULT 0")
+        add_column(c, "users", "totp_secret", "TEXT")
+        add_column(c, "users", "totp_enabled", "INTEGER NOT NULL DEFAULT 0")
+        add_column(c, "users", "totp_last_step", "INTEGER NOT NULL DEFAULT 0")
+        if columns(c, "contracts")["gross_cents"][3] == 1:  # colonne encore NOT NULL -> reconstruction (v0.2)
             c.executescript("""
             BEGIN;
             CREATE TABLE contracts_new (
@@ -233,39 +298,18 @@ def migrate():
             COMMIT;
             """)
         migrate_rights(c)
-        if "job_title" not in {r[1] for r in c.execute("PRAGMA table_info(contracts)")}:
-            c.execute("ALTER TABLE contracts ADD COLUMN job_title TEXT NOT NULL DEFAULT ''")
-        if "days_worked" not in {r[1] for r in c.execute("PRAGMA table_info(contracts)")}:
-            c.execute("ALTER TABLE contracts ADD COLUMN days_worked REAL "
-                      "CHECK (days_worked IS NULL OR days_worked > 0)")
-        if "default_annexe" not in {r[1] for r in c.execute("PRAGMA table_info(users)")}:
-            c.execute("ALTER TABLE users ADD COLUMN default_annexe INTEGER NOT NULL DEFAULT 8"
-                      " CHECK (default_annexe IN (8, 10))")
+        add_column(c, "contracts", "job_title", "TEXT NOT NULL DEFAULT ''")
+        add_column(c, "contracts", "days_worked", "REAL CHECK (days_worked IS NULL OR days_worked > 0)")
+        if add_column(c, "users", "default_annexe",
+                      "INTEGER NOT NULL DEFAULT 8 CHECK (default_annexe IN (8, 10))"):
             # reprend l'annexe du droit le plus récent, 8 à défaut
             c.execute("UPDATE users SET default_annexe = COALESCE((SELECT annexe FROM rights r"
                       " WHERE r.user_id = users.id ORDER BY start_date DESC, id DESC LIMIT 1), 8)")
-        ccols = {r[1] for r in c.execute("PRAGMA table_info(contracts)")}
-        if "annexe" not in ccols:
-            c.execute("ALTER TABLE contracts ADD COLUMN annexe INTEGER NOT NULL DEFAULT 8"
-                      " CHECK (annexe IN (8, 10))")
+        if add_column(c, "contracts", "annexe", "INTEGER NOT NULL DEFAULT 8 CHECK (annexe IN (8, 10))"):
             c.execute("UPDATE contracts SET annexe = (SELECT default_annexe FROM users"
                       " WHERE users.id = contracts.user_id)")
-        if "cachets" not in ccols:
-            c.execute("ALTER TABLE contracts ADD COLUMN cachets INTEGER"
-                      " CHECK (cachets IS NULL OR cachets > 0)")
+        add_column(c, "contracts", "cachets", "INTEGER CHECK (cachets IS NULL OR cachets > 0)")
 
-def migrate_rights(c):
-    cols = {r[1] for r in c.execute("PRAGMA table_info(are_rights)")}
-    if not cols:        # installation neuve, ou déjà migrée
-        return
-    if "aj_net_cents" not in cols:
-        c.execute("ALTER TABLE are_rights ADD COLUMN aj_net_cents INTEGER")
-    c.execute(
-        "INSERT INTO rights(user_id, annexe, fct_date, start_date, anniversary_date,"
-        " aj_net_cents, opening_type)"
-        " SELECT user_id, annexe, fct_date, start_date, anniversary_date,"
-        " aj_net_cents, 'renewal' FROM are_rights")
-    c.execute("ALTER TABLE are_rights RENAME TO are_rights_old")
 
 migrate()
 
@@ -275,7 +319,6 @@ def get_db():
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
-        g.db.execute("PRAGMA journal_mode = WAL")
     return g.db
 
 
@@ -285,8 +328,14 @@ def close_db(_):
     if db:
         db.close()
 
+# ===========================================================================
+# Réponses JSON, sécurité et limitation des tentatives
+# ===========================================================================
 
-# ---------- Sécurité ----------
+def err(msg, code=400):
+    return jsonify(error=msg), code
+
+
 def csrf_token():
     if "csrf" not in session:
         session["csrf"] = secrets.token_urlsafe(32)
@@ -327,18 +376,47 @@ def e413(_):
     return jsonify(error="Fichier trop volumineux (10 Mo max)"), 413
 
 
-FAILS = {}
-MAX_FAILS, WINDOW = 5, 900
+FAILS = {}                      # clé -> horodatages des tentatives récentes (en mémoire)
+MAX_FAILS, WINDOW = 5, 900      # 5 échecs par fenêtre de 15 minutes
+
+
+def _recent(key, window=WINDOW):
+    """Horodatages encore valides pour `key` (les anciens sont purgés)."""
+    now = time.time()
+    if len(FAILS) > 5000:       # évite que le dictionnaire grossisse indéfiniment
+        for k in [k for k, v in FAILS.items() if not v or now - v[-1] > WINDOW]:
+            del FAILS[k]
+    FAILS[key] = [t for t in FAILS.get(key, []) if now - t < window]
+    return FAILS[key]
 
 
 def too_many(key):
-    now = time.time()
-    FAILS[key] = [t for t in FAILS.get(key, []) if now - t < WINDOW]
-    return len(FAILS[key]) >= MAX_FAILS
+    """True si `key` a déjà MAX_FAILS échecs récents."""
+    return len(_recent(key)) >= MAX_FAILS
+
+
+def record_fail(key):
+    _recent(key).append(time.time())
+
+
+def clear_fails(key):
+    FAILS.pop(key, None)
+
+
+def hit(key, limit, window=WINDOW):
+    """Enregistre une tentative ; True si la limite est dépassée."""
+    recent = _recent(key, window)
+    if len(recent) >= limit:
+        return True
+    recent.append(time.time())
+    return False
 
 
 DUMMY_HASH = generate_password_hash("dummy-password-for-timing")
 
+# ===========================================================================
+# Session et mots de passe
+# ===========================================================================
 
 def current_uid():
     uid = session.get("uid")
@@ -363,8 +441,7 @@ def login_required(f):
 
 
 def valid_email(e):
-    return (len(e) <= 254 and " " not in e and "@" in e
-            and "." in e.split("@")[-1] and not e.startswith("@"))
+    return len(e) <= 254 and bool(EMAIL_RE.match(e))
 
 
 def check_password(uid, pwd):
@@ -374,39 +451,19 @@ def check_password(uid, pwd):
         return err("Trop de tentatives, réessaie dans 15 minutes", 429)
     u = get_db().execute("SELECT password_hash FROM users WHERE id=?", (uid,)).fetchone()
     if not (u and check_password_hash(u["password_hash"], pwd)):
-        FAILS.setdefault(key, []).append(time.time())
+        record_fail(key)
         return err("Mot de passe actuel incorrect", 403)
-    FAILS.pop(key, None)
+    clear_fails(key)
     return None
 
-# ---------- E-mails, jetons et double authentification ----------
-TOKEN_TTL = {"verify": 48 * 3600, "reset": 3600, "email_change": 24 * 3600}
-TOTP_STEP = 30
-EMAIL_RE = re.compile(r"^[^@\s<>,;\"']+@[^@\s<>,;\"']+\.[^@\s<>,;\"']+$")
-
-
-def valid_email(e):
-    return len(e) <= 254 and bool(EMAIL_RE.match(e))
-
-
-def hit(key, limit, window=WINDOW):
-    """Enregistre une tentative ; True si la limite est dépassée."""
-    now = time.time()
-    if len(FAILS) > 5000:       # évite que le dictionnaire grossisse indéfiniment
-        for k in [k for k, v in FAILS.items() if not v or now - v[-1] > WINDOW]:
-            del FAILS[k]
-    FAILS[key] = [t for t in FAILS.get(key, []) if now - t < window]
-    if len(FAILS[key]) >= limit:
-        return True
-    FAILS[key].append(now)
-    return False
-
+# ===========================================================================
+# E-mails et jetons de lien
+# ===========================================================================
 
 def hash_token(raw):
     return hmac.new(app.config["SECRET_KEY"].encode(), raw.encode(), hashlib.sha256).hexdigest()
 
 
-# --- E-mails ---
 def mail_mode():
     if os.environ.get("MAIL_CONSOLE") == "1":
         return "console"
@@ -444,9 +501,6 @@ def deliver(msg):
         app.logger.exception("Échec d'envoi d'e-mail")
 
 
-LOGO_EMAIL = BASE / "static" / "img" / "logo-email.png"
-
-
 def send_mail(to, subject, text, html=None):
     if os.environ.get("MAIL_CONSOLE") == "1":
         app.logger.warning("MAIL à %s : %s\n%s", to, subject, text)
@@ -482,7 +536,6 @@ def send_action_mail(to, subject, **fields):
               render_template("mail/action.html", **ctx))
 
 
-# --- Jetons de lien ---
 def make_token(db, uid, purpose, new_email=None):
     raw = secrets.token_urlsafe(32)
     db.execute("DELETE FROM email_tokens WHERE expires_at < ?", (int(time.time()),))
@@ -523,8 +576,10 @@ def send_verification(uid, email):
         outro="Si tu n'as pas créé de compte sur 507h, tu peux ignorer ce message.",
         preheader="Un clic pour confirmer ton adresse e-mail.")
 
+# ===========================================================================
+# Double authentification : fonctions communes (TOTP, RFC 6238)
+# ===========================================================================
 
-# --- Double authentification (TOTP, RFC 6238) ---
 def totp_at(secret_b32, step):
     h = hmac.new(base64.b32decode(secret_b32), struct.pack(">Q", step), hashlib.sha1).digest()
     o = h[-1] & 0x0F
@@ -588,15 +643,597 @@ def second_factor_ok(db, uid, code):
         return None, err("Trop de tentatives, réessaie dans 15 minutes", 429)
     kind = verify_second_factor(db, uid, code)
     if not kind:
-        FAILS.setdefault(key, []).append(time.time())
+        record_fail(key)
         return None, err("Code incorrect", 403)
-    FAILS.pop(key, None)
+    clear_fails(key)
     return kind, None
 
-# ---------- Validation ----------
-def err(msg, code=400):
-    return jsonify(error=msg), code
+# ===========================================================================
+# Pages HTML
+# ===========================================================================
 
+@app.get("/")
+@login_required
+def dashboard():
+    return render_template("dashboard.html")
+
+
+@app.get("/login")
+def login_page():
+    if current_uid():
+        return redirect(url_for("dashboard"))
+    return render_template("auth.html")
+
+
+@app.get("/intermittence")
+@login_required
+def intermittence_page():
+    return render_template("intermittence.html")
+
+
+@app.get("/stats")
+@login_required
+def stats_page():
+    return render_template("stats.html")
+
+
+@app.get("/account")
+@login_required
+def account_page():
+    return render_template("account.html")
+
+
+@app.get("/forgot")
+def forgot_page():
+    return render_template("forgot.html")
+
+
+@app.get("/reset")
+def reset_page():
+    return render_template("reset.html")
+
+
+@app.get("/verify")
+def verify_page():
+    return render_template("confirm.html")
+
+
+@app.get("/healthz")
+def healthz():
+    get_db().execute("SELECT 1").fetchone()
+    return jsonify(status="ok")
+
+
+@app.context_processor
+def inject_mail_state():
+    unverified = False
+    uid = session.get("uid")
+    if uid and mail_enabled():
+        r = get_db().execute("SELECT email_verified FROM users WHERE id=?", (uid,)).fetchone()
+        unverified = bool(r) and not r["email_verified"]
+    return {"email_unverified": unverified, "mail_on": mail_enabled()}
+
+# ===========================================================================
+# API : connexion et inscription
+# ===========================================================================
+
+def finish_login(uid, session_version):
+    session.clear()
+    session.permanent = True
+    session["uid"] = uid
+    session["sv"] = session_version
+    csrf_token()
+
+
+@app.post("/api/register")
+def register():
+    data = request.get_json(silent=True) or {}
+    email = str(data.get("email", "")).strip().lower()
+    pwd = str(data.get("password", ""))
+    if not valid_email(email):
+        return err("Email invalide")
+    if not (12 <= len(pwd) <= 200):
+        return err("Mot de passe : 12 caractères minimum")
+    if pwd != str(data.get("password_confirm", "")):
+        return err("Les mots de passe ne correspondent pas")
+    db = get_db()
+    try:
+        cur = db.execute("INSERT INTO users(email, password_hash) VALUES (?, ?)",
+                         (email, generate_password_hash(pwd)))
+        db.commit()
+    except sqlite3.IntegrityError:
+        return err("Impossible de créer ce compte", 409)
+    if mail_enabled():
+        send_verification(cur.lastrowid, email)
+    finish_login(cur.lastrowid, 0)
+    return jsonify(ok=True), 201
+
+
+@app.post("/api/login")
+def login():
+    data = request.get_json(silent=True) or {}
+    email = str(data.get("email", "")).strip().lower()
+    pwd = str(data.get("password", ""))
+    key = f"{request.remote_addr}|{email}"
+    if too_many(key):
+        return err("Trop de tentatives, réessaie dans 15 minutes", 429)
+    u = get_db().execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    ok = check_password_hash(u["password_hash"] if u else DUMMY_HASH, pwd)
+    if not (u and ok):
+        record_fail(key)
+        return err("Identifiants incorrects", 401)
+    clear_fails(key)
+    if u["totp_enabled"]:
+        # mot de passe correct : on attend le second facteur, sans ouvrir de session
+        csrf = session.get("csrf")      # conserve le jeton CSRF de la page de connexion
+        session.clear()
+        session["csrf"] = csrf or secrets.token_urlsafe(32)
+        session["pending_uid"] = u["id"]
+        session["pending_at"] = int(time.time())
+        return jsonify(needs_2fa=True)
+    finish_login(u["id"], u["session_version"])
+    return jsonify(ok=True)
+
+
+@app.post("/api/login/2fa")
+def login_2fa():
+    uid = session.get("pending_uid")
+    if not uid or time.time() - session.get("pending_at", 0) > 300:
+        session.pop("pending_uid", None)
+        session.pop("pending_at", None)
+        return err("Session expirée, recommence la connexion", 401)
+    db = get_db()
+    _, bad = second_factor_ok(db, uid, (request.get_json(silent=True) or {}).get("code"))
+    if bad:
+        return bad
+    u = db.execute("SELECT id, session_version FROM users WHERE id=?", (uid,)).fetchone()
+    finish_login(u["id"], u["session_version"])
+    return jsonify(ok=True)
+
+
+@app.post("/api/logout")
+def logout():
+    session.clear()
+    return jsonify(ok=True)
+
+# ===========================================================================
+# API : vérification de l'e-mail et mot de passe oublié
+# ===========================================================================
+
+@app.post("/api/email/send-verification")
+@login_required
+def resend_verification():
+    if not mail_enabled():
+        return err("L'envoi d'e-mails n'est pas configuré sur ce serveur", 503)
+    db, uid = get_db(), session["uid"]
+    u = db.execute("SELECT email, email_verified FROM users WHERE id=?", (uid,)).fetchone()
+    if u["email_verified"]:
+        return jsonify(ok=True, message="Adresse déjà vérifiée.")
+    if hit(f"verify|{uid}", 3):
+        return err("Trop de demandes, réessaie dans 15 minutes", 429)
+    send_verification(uid, u["email"])
+    return jsonify(ok=True, message="Lien envoyé. Pense à vérifier tes courriers indésirables.")
+
+
+@app.post("/api/email/confirm")
+def confirm_email():
+    db = get_db()
+    row = consume_token(db, str((request.get_json(silent=True) or {}).get("token", "")),
+                        ("verify", "email_change"))
+    if not row:
+        return err("Lien invalide ou expiré")
+    try:
+        if row["purpose"] == "verify":
+            db.execute("UPDATE users SET email_verified=1 WHERE id=?", (row["user_id"],))
+        else:
+            db.execute("UPDATE users SET email=?, email_verified=1 WHERE id=?",
+                       (row["new_email"], row["user_id"]))
+            db.execute("DELETE FROM email_tokens WHERE user_id=? AND purpose='verify'",
+                       (row["user_id"],))
+        db.commit()
+    except sqlite3.IntegrityError:
+        return err("Cette adresse est déjà utilisée par un autre compte", 409)
+    return jsonify(ok=True, kind=row["purpose"])
+
+
+@app.post("/api/password/forgot")
+def forgot_password():
+    if not mail_enabled():
+        return err("L'envoi d'e-mails n'est pas configuré sur ce serveur", 503)
+    email = str((request.get_json(silent=True) or {}).get("email", "")).strip().lower()
+    if hit(f"forgot-ip|{request.remote_addr}", 10) or hit(f"forgot|{email}", 3):
+        return err("Trop de demandes, réessaie dans 15 minutes", 429)
+    if valid_email(email):
+        db = get_db()
+        u = db.execute("SELECT id FROM users WHERE email=? AND email_verified=1", (email,)).fetchone()
+        if u:
+            raw = make_token(db, u["id"], "reset")
+            send_action_mail(
+                email, "507h – Réinitialisation du mot de passe",
+                heading="Choisis un nouveau mot de passe",
+                intro="Tu as demandé la réinitialisation du mot de passe de ton compte 507h.",
+                button="Choisir un nouveau mot de passe",
+                link=f"{base_url()}/reset?token={raw}",
+                expires="Ce lien est valable 1 heure et ne peut servir qu'une fois.",
+                outro="Si tu n'es pas à l'origine de cette demande, ignore ce message : ton mot de passe "
+                      "ne changera pas. Après un changement, tous tes appareils sont déconnectés.",
+                preheader="Lien valable 1 heure pour choisir un nouveau mot de passe.")
+    return jsonify(ok=True, message="Si un compte vérifié existe pour cette adresse, "
+                                    "un e-mail vient d'être envoyé.")
+
+
+@app.post("/api/password/reset")
+def reset_password():
+    d = request.get_json(silent=True) or {}
+    pwd = str(d.get("password", ""))
+    if not (12 <= len(pwd) <= 200):
+        return err("Mot de passe : 12 caractères minimum")
+    if pwd != str(d.get("password_confirm", "")):
+        return err("Les mots de passe ne correspondent pas")
+    db = get_db()
+    row = consume_token(db, str(d.get("token", "")), ("reset",))
+    if not row:
+        return err("Lien invalide ou expiré")
+    db.execute("UPDATE users SET password_hash=?, session_version=session_version+1 WHERE id=?",
+               (generate_password_hash(pwd), row["user_id"]))
+    db.commit()
+    session.clear()
+    return jsonify(ok=True)
+
+# ===========================================================================
+# API : double authentification
+# ===========================================================================
+
+@app.post("/api/2fa/setup")
+@login_required
+def twofa_setup():
+    db, uid = get_db(), session["uid"]
+    bad = check_password(uid, str((request.get_json(silent=True) or {}).get("password", "")))
+    if bad:
+        return bad
+    if db.execute("SELECT totp_enabled FROM users WHERE id=?", (uid,)).fetchone()[0]:
+        return err("La double authentification est déjà activée")
+    secret = base64.b32encode(secrets.token_bytes(20)).decode()
+    db.execute("UPDATE users SET totp_secret=?, totp_enabled=0, totp_last_step=0 WHERE id=?",
+               (FERNET.encrypt(secret.encode()).decode(), uid))
+    db.commit()
+    return jsonify(secret=secret)
+
+
+@app.get("/api/2fa/qr.svg")
+@login_required
+def twofa_qr():
+    u = get_db().execute("SELECT email, totp_secret, totp_enabled FROM users WHERE id=?",
+                         (session["uid"],)).fetchone()
+    if not u or not u["totp_secret"] or u["totp_enabled"]:
+        abort(404)
+    secret = FERNET.decrypt(u["totp_secret"].encode()).decode()
+    label = quote(f"507h:{u['email']}", safe="@:")
+    uri = f"otpauth://totp/{label}?secret={secret}&issuer=507h&algorithm=SHA1&digits=6&period=30"
+    buf = io.BytesIO()
+    segno.make(uri, error="m").save(buf, kind="svg", scale=6, border=2,
+                                    dark="#000000", light="#ffffff")
+    return Response(buf.getvalue(), mimetype="image/svg+xml")
+
+
+@app.post("/api/2fa/enable")
+@login_required
+def twofa_enable():
+    db, uid = get_db(), session["uid"]
+    if hit(f"2fa-setup|{uid}", 10):
+        return err("Trop de tentatives, réessaie dans 15 minutes", 429)
+    u = db.execute("SELECT totp_secret, totp_enabled FROM users WHERE id=?", (uid,)).fetchone()
+    if not u["totp_secret"] or u["totp_enabled"]:
+        return err("Lance d'abord la configuration")
+    secret = FERNET.decrypt(u["totp_secret"].encode()).decode()
+    step = check_totp(secret, (request.get_json(silent=True) or {}).get("code"), 0)
+    if not step:
+        return err("Code incorrect")
+    codes = new_recovery_codes(db, uid)
+    db.execute("UPDATE users SET totp_enabled=1, totp_last_step=? WHERE id=?", (step, uid))
+    db.commit()
+    bump_sessions(db, uid)      # déconnecte les autres appareils, garde celui-ci
+    return jsonify(recovery_codes=codes)
+
+
+@app.post("/api/2fa/disable")
+@login_required
+def twofa_disable():
+    db, uid = get_db(), session["uid"]
+    d = request.get_json(silent=True) or {}
+    bad = check_password(uid, str(d.get("password", "")))
+    if bad:
+        return bad
+    _, bad = second_factor_ok(db, uid, d.get("code"))
+    if bad:
+        return bad
+    db.execute("UPDATE users SET totp_secret=NULL, totp_enabled=0, totp_last_step=0 WHERE id=?", (uid,))
+    db.execute("DELETE FROM recovery_codes WHERE user_id=?", (uid,))
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/2fa/recovery")
+@login_required
+def twofa_recovery():
+    db, uid = get_db(), session["uid"]
+    d = request.get_json(silent=True) or {}
+    bad = check_password(uid, str(d.get("password", "")))
+    if bad:
+        return bad
+    _, bad = second_factor_ok(db, uid, d.get("code"))
+    if bad:
+        return bad
+    codes = new_recovery_codes(db, uid)
+    db.commit()
+    return jsonify(recovery_codes=codes)
+
+# ===========================================================================
+# API : compte
+# ===========================================================================
+
+def bump_sessions(db, uid):
+    db.execute("UPDATE users SET session_version = session_version + 1 WHERE id=?", (uid,))
+    db.commit()
+    session["sv"] = db.execute("SELECT session_version FROM users WHERE id=?", (uid,)).fetchone()[0]
+
+
+@app.get("/api/account")
+@login_required
+def account_info():
+    db, uid = get_db(), session["uid"]
+    u = db.execute("SELECT email, created_at, email_verified, totp_enabled, default_annexe"
+                   " FROM users WHERE id=?", (uid,)).fetchone()
+    nc = db.execute("SELECT COUNT(*) FROM contracts WHERE user_id=?", (uid,)).fetchone()[0]
+    nd = db.execute("SELECT COUNT(*) FROM documents WHERE user_id=?", (uid,)).fetchone()[0]
+    left = db.execute("SELECT COUNT(*) FROM recovery_codes WHERE user_id=?", (uid,)).fetchone()[0]
+    return jsonify(email=u["email"], created_at=u["created_at"], contracts=nc, documents=nd,
+                   email_verified=bool(u["email_verified"]), totp_enabled=bool(u["totp_enabled"]),
+                   recovery_left=left, mail_enabled=mail_enabled(),
+                   default_annexe=u["default_annexe"])
+
+
+@app.post("/api/account/email")
+@login_required
+def change_email():
+    d = request.get_json(silent=True) or {}
+    db, uid = get_db(), session["uid"]
+    email = str(d.get("email", "")).strip().lower()
+    if not valid_email(email):
+        return err("Email invalide")
+    if hit(f"emailchg|{uid}", 5):
+        return err("Trop de demandes, réessaie plus tard", 429)
+    bad = check_password(uid, str(d.get("password", "")))
+    if bad:
+        return bad
+    if not mail_enabled():
+        try:
+            db.execute("UPDATE users SET email=? WHERE id=?", (email, uid))
+            db.commit()
+        except sqlite3.IntegrityError:
+            return err("Cette adresse n'est pas disponible", 409)
+        return jsonify(ok=True, message="Adresse e-mail mise à jour.")
+    taken = db.execute("SELECT 1 FROM users WHERE email=? AND id<>?", (email, uid)).fetchone()
+    if not taken:       # même réponse dans tous les cas : pas de fuite sur les adresses existantes
+        raw = make_token(db, uid, "email_change", email)
+        send_action_mail(
+            email, "507h – Confirme ta nouvelle adresse e-mail",
+            heading="Confirme ta nouvelle adresse",
+            intro="Tu as demandé à utiliser cette adresse pour ton compte 507h. "
+                  "Confirme-la pour que le changement soit pris en compte.",
+            button="Confirmer la nouvelle adresse",
+            link=f"{base_url()}/verify?token={raw}",
+            expires="Ce lien est valable 24 heures. Ton ancienne adresse reste valable jusqu'à la confirmation.",
+            outro="Si tu n'es pas à l'origine de cette demande, ignore ce message : rien ne changera.",
+            preheader="Confirme ta nouvelle adresse e-mail 507h.")
+    return jsonify(ok=True, message="Un lien de confirmation vient d'être envoyé à la nouvelle "
+                                    "adresse. Ton adresse actuelle reste valable jusqu'à sa confirmation.")
+
+
+@app.post("/api/account/password")
+@login_required
+def change_password():
+    d = request.get_json(silent=True) or {}
+    uid = session["uid"]
+    current, new = str(d.get("current", "")), str(d.get("new", ""))
+    if not (12 <= len(new) <= 200):
+        return err("Nouveau mot de passe : 12 caractères minimum")
+    if new != str(d.get("confirm", "")):
+        return err("Les mots de passe ne correspondent pas")
+    if new == current:
+        return err("Le nouveau mot de passe doit être différent de l'ancien")
+    bad = check_password(uid, current)
+    if bad:
+        return bad
+    db = get_db()
+    db.execute("UPDATE users SET password_hash=? WHERE id=?",
+               (generate_password_hash(new), uid))
+    bump_sessions(db, uid)   # déconnecte les autres appareils, garde celui-ci
+    return jsonify(ok=True)
+
+
+@app.post("/api/account/logout-all")
+@login_required
+def logout_all():
+    bump_sessions(get_db(), session["uid"])
+    return jsonify(ok=True)
+
+
+@app.post("/api/account/preferences")
+@login_required
+def save_preferences():
+    d = request.get_json(silent=True) or {}
+    try:
+        annexe = int(d.get("default_annexe"))
+    except (TypeError, ValueError):
+        return err("Annexe invalide")
+    if annexe not in (8, 10):
+        return err("Annexe invalide")
+    db = get_db()
+    db.execute("UPDATE users SET default_annexe=? WHERE id=?", (annexe, session["uid"]))
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.get("/api/account/export")
+@login_required
+def export_account():
+    db, uid = get_db(), session["uid"]
+    u = db.execute("SELECT email, created_at FROM users WHERE id=?", (uid,)).fetchone()
+    docs = db.execute("SELECT * FROM documents WHERE user_id=? ORDER BY id", (uid,)).fetchall()
+    by_contract = {}
+    for d in docs:
+        by_contract.setdefault(d["contract_id"], []).append(doc_to_dict(d))
+    contracts = [row_to_dict(r, by_contract.get(r["id"], [])) for r in db.execute(
+        "SELECT * FROM contracts WHERE user_id=? ORDER BY end_date DESC", (uid,))]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("507h-export.json", json.dumps(
+            {"version": APP_VERSION, "email": u["email"], "created_at": u["created_at"],
+             "droits_are": [{k: v for k, v in x.items() if k in (
+                 "annexe", "opening_type", "fct_date", "start_date", "note")}
+                 | {"anniversary_date": x["anniversary_input"], "aj_net": x["aj_net"]}
+                 for x in rights_history(db, uid)],
+             "virements": [{k: v for k, v in p.items() if k != "id"}
+                           for p in payments_list(db, uid)],
+             "plafonds": [{"label": r["label"], "employer_match": r["employer_match"],
+                           "max_days": r["max_days"]}
+                          for r in db.execute("SELECT * FROM day_limits WHERE user_id=? ORDER BY id",
+                                              (uid,))],
+             "formations": [{k: v for k, v in t.items() if k != "id"}
+                            for t in trainings_list(db, uid)],
+             "contracts": contracts}, ensure_ascii=False, indent=2))
+        for d in docs:
+            try:
+                raw = FERNET.decrypt((UPLOAD_DIR / str(uid) / d["stored_name"]).read_bytes())
+            except (FileNotFoundError, InvalidToken):
+                continue
+            z.writestr(f"documents/{d['id']}_{d['kind']}_{d['original_name']}", raw)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name="507h-export.zip")
+
+
+@app.post("/api/account/import")
+@login_required
+def import_data():
+    if (request.content_length or 0) > MAX_IMPORT_BYTES:
+        return err("Fichier trop volumineux (2 Mo max)", 413)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return err("Fichier JSON invalide")
+    items = data.get("contracts", [])
+    raw_rights = data.get("droits_are")
+    if raw_rights is None and data.get("droit_are"):       # ancien format (0.4 à 0.6)
+        raw_rights = [data["droit_are"]]
+    raw_pay = data.get("virements", [])
+    raw_limits = data.get("plafonds", [])
+    raw_train = data.get("formations", [])
+    for name, lst in (("contracts", items), ("droits_are", raw_rights or []),
+                      ("virements", raw_pay), ("plafonds", raw_limits),
+                      ("formations", raw_train)):
+        if not isinstance(lst, list):
+            return err(f"Format inattendu : « {name} » doit être une liste")
+    if max(len(items), len(raw_pay), len(raw_train)) > MAX_IMPORT_CONTRACTS:
+        return err(f"{MAX_IMPORT_CONTRACTS} éléments maximum par liste")
+
+    errors, contracts, rights, pays, limits, trains = [], [], [], [], [], []
+    for label, src, dst, fn in (("Contrat", items, contracts, parse_contract),
+                                ("Droit", raw_rights or [], rights, parse_rights),
+                                ("Virement", raw_pay, pays, parse_payment),
+                                ("Plafond", raw_limits, limits, parse_limit),
+                                ("Formation", raw_train, trains, parse_training)):
+        for i, it in enumerate(src, 1):
+            try:
+                dst.append(fn(it))
+            except ValueError as e:
+                errors.append(f"{label} n°{i} : {e}")
+    if errors:
+        return jsonify(error="Import refusé, rien n'a été modifié", details=errors[:10]), 400
+    if not (contracts or rights or pays or limits or trains):
+        return err("Aucune donnée à importer dans ce fichier")
+
+    db, uid = get_db(), session["uid"]
+    seen_c = {(r["employer"].lower(), r["mission"], r["start_date"], r["end_date"], r["hours"])
+              for r in db.execute("SELECT employer, mission, start_date, end_date, hours"
+                                  " FROM contracts WHERE user_id=?", (uid,))}
+    seen_r = {(r["annexe"], r["fct_date"], r["start_date"]) for r in db.execute(
+        "SELECT annexe, fct_date, start_date FROM rights WHERE user_id=?", (uid,))}
+    seen_p = {(r["paid_on"], r["month_covered"], r["amount_cents"]) for r in db.execute(
+        "SELECT paid_on, month_covered, amount_cents FROM payments WHERE user_id=?", (uid,))}
+    seen_l = {(r["label"].lower(), r["employer_match"].lower()) for r in db.execute(
+        "SELECT label, employer_match FROM day_limits WHERE user_id=?", (uid,))}
+    seen_t = {(r["title"].lower(), r["start_date"], r["end_date"], r["hours"]) for r in db.execute(
+        "SELECT title, start_date, end_date, hours FROM trainings WHERE user_id=?", (uid,))}
+
+    def fresh(values, seen, key):
+        out, dup = [], 0
+        for v in values:
+            k = key(v)
+            if k in seen:
+                dup += 1
+            else:
+                seen.add(k)
+                out.append(v)
+        return out, dup
+
+    # contrat : (employeur, mission, heures, début, fin, ...) ; droit : (annexe, FCT, début, ...)
+    # virement : (date, mois, montant, ...) ; plafond : (nom, texte, max) ; formation : (titre, organisme, heures, début, fin, ...)
+    new_c, d1 = fresh(contracts, seen_c, lambda v: (v[0].lower(), v[1], v[3], v[4], v[2]))
+    new_r, d2 = fresh(rights, seen_r, lambda v: (v[0], v[1], v[2]))
+    new_p, d3 = fresh(pays, seen_p, lambda v: (v[0], v[1], v[2]))
+    new_l, d4 = fresh(limits, seen_l, lambda v: (v[0].lower(), v[1].lower()))
+    new_t, d5 = fresh(trains, seen_t, lambda v: (v[0].lower(), v[3], v[4], v[2]))
+    dup = d1 + d2 + d3 + d4 + d5
+
+    caps = (("rights", new_r, MAX_RIGHTS), ("payments", new_p, MAX_PAYMENTS),
+            ("day_limits", new_l, MAX_LIMITS), ("trainings", new_t, MAX_TRAININGS))
+    for table, new, cap in caps:
+        have = db.execute(f"SELECT COUNT(*) FROM {table} WHERE user_id=?", (uid,)).fetchone()[0]
+        if have + len(new) > cap:
+            return err("Limite de droits, de virements, de plafonds ou de formations dépassée")
+    try:
+        db.executemany(
+            "INSERT INTO contracts(user_id, employer, mission, hours, start_date, end_date,"
+            " gross_cents, net_cents, comment, job_title, days_worked, annexe, cachets)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [(uid, *v) for v in new_c])
+        db.executemany(RIGHT_INSERT, [(uid, *v) for v in new_r])
+        db.executemany(PAYMENT_INSERT, [(uid, *v) for v in new_p])
+        db.executemany("INSERT INTO day_limits(user_id, label, employer_match, max_days)"
+                       " VALUES (?,?,?,?)", [(uid, *v) for v in new_l])
+        db.executemany(
+            "INSERT INTO trainings(user_id, title, provider, hours, start_date, end_date,"
+            " paid_by_are) VALUES (?,?,?,?,?,?,?)",
+            [(uid, v[0], v[1], v[2], v[3], v[4], v[5]) for v in new_t])
+        db.commit()
+    except sqlite3.Error:
+        db.rollback()
+        return err("Erreur lors de l'import, rien n'a été modifié", 500)
+    return jsonify(added=len(new_c), rights=len(new_r), payments=len(new_p),
+                   limits=len(new_l), trainings=len(new_t), duplicates=dup)
+
+
+@app.delete("/api/account")
+@login_required
+def delete_account():
+    d = request.get_json(silent=True) or {}
+    uid = session["uid"]
+    if d.get("confirm") != "SUPPRIMER":
+        return err("Tape SUPPRIMER pour confirmer")
+    bad = check_password(uid, str(d.get("password", "")))
+    if bad:
+        return bad
+    db = get_db()
+    db.execute("DELETE FROM users WHERE id=?", (uid,))   # cascade : contrats + documents
+    db.commit()
+    shutil.rmtree(UPLOAD_DIR / str(uid), ignore_errors=True)
+    session.clear()
+    return jsonify(ok=True)
+
+# ===========================================================================
+# Contrats et documents
+# ===========================================================================
 
 def to_cents(v):
     if v is None or str(v).strip() == "":
@@ -608,9 +1245,6 @@ def to_cents(v):
     if d < 0 or d > Decimal("10000000"):
         raise ValueError("Montant hors limites")
     return int((d * 100).to_integral_value())
-
-
-CACHET_HOURS = 12
 
 
 def parse_contract(data):
@@ -709,126 +1343,6 @@ def remove_files(uid, stored_names):
             pass
 
 
-# ---------- Pages ----------
-@app.get("/")
-@login_required
-def dashboard():
-    return render_template("dashboard.html")
-
-
-@app.get("/login")
-def login_page():
-    if current_uid():
-        return redirect(url_for("dashboard"))
-    return render_template("auth.html")
-
-@app.get("/intermittence")
-@login_required
-def intermittence_page():
-    return render_template("intermittence.html")
-
-@app.get("/stats")
-@login_required
-def stats_page():
-    return render_template("stats.html")
-
-@app.get("/account")
-@login_required
-def account_page():
-    return render_template("account.html")
-
-@app.get("/healthz")
-def healthz():
-    get_db().execute("SELECT 1").fetchone()
-    return jsonify(status="ok")
-
-
-# ---------- API auth ----------
-def finish_login(u):
-    session.clear()
-    session.permanent = True
-    session["uid"] = u["id"]
-    session["sv"] = u["session_version"]
-    csrf_token()
-
-
-@app.post("/api/register")
-def register():
-    data = request.get_json(silent=True) or {}
-    email = str(data.get("email", "")).strip().lower()
-    pwd = str(data.get("password", ""))
-    if not valid_email(email):
-        return err("Email invalide")
-    if not (12 <= len(pwd) <= 200):
-        return err("Mot de passe : 12 caractères minimum")
-    if pwd != str(data.get("password_confirm", "")):
-        return err("Les mots de passe ne correspondent pas")
-    db = get_db()
-    try:
-        cur = db.execute("INSERT INTO users(email, password_hash) VALUES (?, ?)",
-                         (email, generate_password_hash(pwd)))
-        db.commit()
-    except sqlite3.IntegrityError:
-        return err("Impossible de créer ce compte", 409)
-    if mail_enabled():
-        send_verification(cur.lastrowid, email)
-    session.clear()
-    session.permanent = True
-    session["uid"] = cur.lastrowid
-    session["sv"] = 0
-    csrf_token()
-    return jsonify(ok=True), 201
-
-
-@app.post("/api/login")
-def login():
-    data = request.get_json(silent=True) or {}
-    email = str(data.get("email", "")).strip().lower()
-    pwd = str(data.get("password", ""))
-    key = f"{request.remote_addr}|{email}"
-    if too_many(key):
-        return err("Trop de tentatives, réessaie dans 15 minutes", 429)
-    u = get_db().execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-    ok = check_password_hash(u["password_hash"] if u else DUMMY_HASH, pwd)
-    if not (u and ok):
-        FAILS.setdefault(key, []).append(time.time())
-        return err("Identifiants incorrects", 401)
-    FAILS.pop(key, None)
-    if u["totp_enabled"]:
-        # mot de passe correct : on attend le second facteur, sans ouvrir de session
-        csrf = session.get("csrf")      # conserve le jeton CSRF de la page de connexion
-        session.clear()
-        session["csrf"] = csrf or secrets.token_urlsafe(32)
-        session["pending_uid"] = u["id"]
-        session["pending_at"] = int(time.time())
-        return jsonify(needs_2fa=True)
-    finish_login(u)
-    return jsonify(ok=True)
-
-
-@app.post("/api/login/2fa")
-def login_2fa():
-    uid = session.get("pending_uid")
-    if not uid or time.time() - session.get("pending_at", 0) > 300:
-        session.pop("pending_uid", None)
-        session.pop("pending_at", None)
-        return err("Session expirée, recommence la connexion", 401)
-    db = get_db()
-    kind, bad = second_factor_ok(db, uid, (request.get_json(silent=True) or {}).get("code"))
-    if bad:
-        return bad
-    u = db.execute("SELECT id, session_version FROM users WHERE id=?", (uid,)).fetchone()
-    finish_login(u)
-    return jsonify(ok=True, recovery_used=(kind == "recovery"))
-
-
-@app.post("/api/logout")
-def logout():
-    session.clear()
-    return jsonify(ok=True)
-
-
-# ---------- API contrats ----------
 @app.get("/api/contracts")
 @login_required
 def list_contracts():
@@ -840,16 +1354,6 @@ def list_contracts():
         "SELECT * FROM contracts WHERE user_id=? ORDER BY end_date DESC, id DESC",
         (uid,)).fetchall()
     return jsonify([row_to_dict(r, docs.get(r["id"], [])) for r in rows])
-
-
-@app.get("/api/employers")
-@login_required
-def list_employers():
-    rows = get_db().execute(
-        "SELECT employer, COUNT(*) AS n, MAX(end_date) AS last FROM contracts"
-        " WHERE user_id=? GROUP BY employer COLLATE NOCASE"
-        " ORDER BY n DESC, last DESC LIMIT 50", (session["uid"],)).fetchall()
-    return jsonify([r["employer"] for r in rows])
 
 
 @app.post("/api/contracts")
@@ -900,7 +1404,6 @@ def delete_contract(cid):
     return jsonify(ok=True)
 
 
-# ---------- API documents ----------
 @app.post("/api/contracts/<int:cid>/documents")
 @login_required
 def upload_document(cid):
@@ -962,275 +1465,9 @@ def delete_document(did):
     remove_files(uid, [r["stored_name"]])
     return jsonify(ok=True)
 
-@app.get("/api/summary")
-@login_required
-def summary():
-    db, uid = get_db(), session["uid"]
-    today = date.today()
-    start, mode = today - timedelta(days=364), "rolling"
-    fct_date = da_iso = None
-    r = current_right(db, uid)
-    if r:
-        fct, _, da, _ = right_dates(r)
-        fct_date, da_iso = fct.isoformat(), da.isoformat()
-        if fct + timedelta(days=1) > start:
-            start, mode = fct + timedelta(days=1), "since_fct"
-    t = period_totals(db, uid, start, today)
-    return jsonify(hours=t["hours"], contracts=t["contracts"], target=HOURS_TARGET,
-                   training_hours=t["training_hours"],
-                   window_start=start.isoformat(), window_end=today.isoformat(),
-                   mode=mode, fct_date=fct_date, anniversary_date=da_iso,
-                   annexe=user_annexe(db, uid), default_annexe=default_annexe(db, uid))
-
-# ---------- API compte ----------
-def bump_sessions(db, uid):
-    db.execute("UPDATE users SET session_version = session_version + 1 WHERE id=?", (uid,))
-    db.commit()
-    session["sv"] = db.execute("SELECT session_version FROM users WHERE id=?", (uid,)).fetchone()[0]
-
-
-@app.get("/api/account")
-@login_required
-def account_info():
-    db, uid = get_db(), session["uid"]
-    u = db.execute("SELECT email, created_at, email_verified, totp_enabled, default_annexe"
-                   " FROM users WHERE id=?", (uid,)).fetchone()
-    nc = db.execute("SELECT COUNT(*) FROM contracts WHERE user_id=?", (uid,)).fetchone()[0]
-    nd = db.execute("SELECT COUNT(*) FROM documents WHERE user_id=?", (uid,)).fetchone()[0]
-    left = db.execute("SELECT COUNT(*) FROM recovery_codes WHERE user_id=?", (uid,)).fetchone()[0]
-    return jsonify(email=u["email"], created_at=u["created_at"], contracts=nc, documents=nd,
-                   email_verified=bool(u["email_verified"]), totp_enabled=bool(u["totp_enabled"]),
-                   recovery_left=left, mail_enabled=mail_enabled(),
-                   default_annexe=u["default_annexe"])
-
-
-@app.post("/api/account/email")
-@login_required
-def change_email():
-    d = request.get_json(silent=True) or {}
-    db, uid = get_db(), session["uid"]
-    email = str(d.get("email", "")).strip().lower()
-    if not valid_email(email):
-        return err("Email invalide")
-    if hit(f"emailchg|{uid}", 5):
-        return err("Trop de demandes, réessaie plus tard", 429)
-    bad = check_password(uid, str(d.get("password", "")))
-    if bad:
-        return bad
-    if not mail_enabled():
-        try:
-            db.execute("UPDATE users SET email=? WHERE id=?", (email, uid))
-            db.commit()
-        except sqlite3.IntegrityError:
-            return err("Cette adresse n'est pas disponible", 409)
-        return jsonify(ok=True, message="Adresse e-mail mise à jour.")
-    taken = db.execute("SELECT 1 FROM users WHERE email=? AND id<>?", (email, uid)).fetchone()
-    if not taken:       # même réponse dans tous les cas : pas de fuite sur les adresses existantes
-        raw = make_token(db, uid, "email_change", email)
-        send_action_mail(
-            email, "507h – Confirme ta nouvelle adresse e-mail",
-            heading="Confirme ta nouvelle adresse",
-            intro="Tu as demandé à utiliser cette adresse pour ton compte 507h. "
-                  "Confirme-la pour que le changement soit pris en compte.",
-            button="Confirmer la nouvelle adresse",
-            link=f"{base_url()}/verify?token={raw}",
-            expires="Ce lien est valable 24 heures. Ton ancienne adresse reste valable jusqu'à la confirmation.",
-            outro="Si tu n'es pas à l'origine de cette demande, ignore ce message : rien ne changera.",
-            preheader="Confirme ta nouvelle adresse e-mail 507h.")
-    return jsonify(ok=True, message="Un lien de confirmation vient d'être envoyé à la nouvelle "
-                                    "adresse. Ton adresse actuelle reste valable jusqu'à sa confirmation.")
-
-
-@app.post("/api/account/password")
-@login_required
-def change_password():
-    d = request.get_json(silent=True) or {}
-    uid = session["uid"]
-    current, new = str(d.get("current", "")), str(d.get("new", ""))
-    if not (12 <= len(new) <= 200):
-        return err("Nouveau mot de passe : 12 caractères minimum")
-    if new != str(d.get("confirm", "")):
-        return err("Les mots de passe ne correspondent pas")
-    if new == current:
-        return err("Le nouveau mot de passe doit être différent de l'ancien")
-    bad = check_password(uid, current)
-    if bad:
-        return bad
-    db = get_db()
-    db.execute("UPDATE users SET password_hash=? WHERE id=?",
-               (generate_password_hash(new), uid))
-    bump_sessions(db, uid)   # déconnecte les autres appareils, garde celui-ci
-    return jsonify(ok=True)
-
-
-@app.post("/api/account/logout-all")
-@login_required
-def logout_all():
-    bump_sessions(get_db(), session["uid"])
-    return jsonify(ok=True)
-
-@app.post("/api/account/import")
-@login_required
-def import_data():
-    if (request.content_length or 0) > MAX_IMPORT_BYTES:
-        return err("Fichier trop volumineux (2 Mo max)", 413)
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return err("Fichier JSON invalide")
-    items = data.get("contracts", [])
-    raw_rights = data.get("droits_are")
-    if raw_rights is None and data.get("droit_are"):       # ancien format (0.4 à 0.6)
-        raw_rights = [data["droit_are"]]
-    raw_pay = data.get("virements", [])
-    raw_limits = data.get("plafonds", [])
-    raw_train = data.get("formations", [])
-    for name, lst in (("contracts", items), ("droits_are", raw_rights or []),
-                      ("virements", raw_pay), ("plafonds", raw_limits),
-                      ("formations", raw_train)):
-        if not isinstance(lst, list):
-            return err(f"Format inattendu : « {name} » doit être une liste")
-    if max(len(items), len(raw_pay), len(raw_train)) > MAX_IMPORT_CONTRACTS:
-        return err(f"{MAX_IMPORT_CONTRACTS} éléments maximum par liste")
-
-    errors, contracts, rights, pays, limits, trains = [], [], [], [], [], []
-    for label, src, dst, fn in (("Contrat", items, contracts, parse_contract),
-                                ("Droit", raw_rights or [], rights, parse_rights),
-                                ("Virement", raw_pay, pays, parse_payment),
-                                ("Plafond", raw_limits, limits, parse_limit),
-                                ("Formation", raw_train, trains, parse_training)):
-        for i, it in enumerate(src, 1):
-            try:
-                dst.append(fn(it))
-            except ValueError as e:
-                errors.append(f"{label} n°{i} : {e}")
-    if errors:
-        return jsonify(error="Import refusé, rien n'a été modifié", details=errors[:10]), 400
-    if not (contracts or rights or pays or limits or trains):
-        return err("Aucune donnée à importer dans ce fichier")
-
-    db, uid = get_db(), session["uid"]
-    seen_c = {(r["employer"].lower(), r["mission"], r["start_date"], r["end_date"], r["hours"])
-              for r in db.execute("SELECT employer, mission, start_date, end_date, hours"
-                                  " FROM contracts WHERE user_id=?", (uid,))}
-    seen_r = {(r["annexe"], r["fct_date"], r["start_date"]) for r in db.execute(
-        "SELECT annexe, fct_date, start_date FROM rights WHERE user_id=?", (uid,))}
-    seen_p = {(r["paid_on"], r["month_covered"], r["amount_cents"]) for r in db.execute(
-        "SELECT paid_on, month_covered, amount_cents FROM payments WHERE user_id=?", (uid,))}
-    seen_l = {(r["label"].lower(), r["employer_match"].lower()) for r in db.execute(
-        "SELECT label, employer_match FROM day_limits WHERE user_id=?", (uid,))}
-    seen_t = {(r["title"].lower(), r["start_date"], r["end_date"], r["hours"]) for r in db.execute(
-        "SELECT title, start_date, end_date, hours FROM trainings WHERE user_id=?", (uid,))}
-
-    def fresh(values, seen, key):
-        out, dup = [], 0
-        for v in values:
-            k = key(v)
-            if k in seen:
-                dup += 1
-            else:
-                seen.add(k)
-                out.append(v)
-        return out, dup
-
-    # contrat : (employeur, mission, heures, début, fin, ...) ; droit : (annexe, FCT, début, ...)
-    # virement : (date, mois, montant, ...) ; plafond : (nom, texte, max) ; formation : (titre, organisme, heures, début, fin, ...)
-    new_c, d1 = fresh(contracts, seen_c, lambda v: (v[0].lower(), v[1], v[3], v[4], v[2]))
-    new_r, d2 = fresh(rights, seen_r, lambda v: (v[0], v[1], v[2]))
-    new_p, d3 = fresh(pays, seen_p, lambda v: (v[0], v[1], v[2]))
-    new_l, d4 = fresh(limits, seen_l, lambda v: (v[0].lower(), v[1].lower()))
-    new_t, d5 = fresh(trains, seen_t, lambda v: (v[0].lower(), v[3], v[4], v[2]))
-    dup = d1 + d2 + d3 + d4 + d5
-
-    counts = (("rights", "rights", new_r, MAX_RIGHTS), ("payments", "payments", new_p, MAX_PAYMENTS),
-              ("day_limits", "limits", new_l, MAX_LIMITS), ("trainings", "trainings", new_t, MAX_TRAININGS))
-    for table, _, new, cap in counts:
-        have = db.execute(f"SELECT COUNT(*) FROM {table} WHERE user_id=?", (uid,)).fetchone()[0]
-        if have + len(new) > cap:
-            return err("Limite de droits, de virements, de plafonds ou de formations dépassée")
-    try:
-        db.executemany(
-            "INSERT INTO contracts(user_id, employer, mission, hours, start_date, end_date,"
-            " gross_cents, net_cents, comment, job_title, days_worked, annexe, cachets)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            [(uid, *v) for v in new_c])
-        db.executemany(RIGHT_INSERT, [(uid, *v) for v in new_r])
-        db.executemany(PAYMENT_INSERT, [(uid, *v) for v in new_p])
-        db.executemany("INSERT INTO day_limits(user_id, label, employer_match, max_days)"
-                       " VALUES (?,?,?,?)", [(uid, *v) for v in new_l])
-        db.executemany(
-            "INSERT INTO trainings(user_id, title, provider, hours, start_date, end_date,"
-            " paid_by_are) VALUES (?,?,?,?,?,?,?)",
-            [(uid, v[0], v[1], v[2], v[3], v[4], v[5]) for v in new_t])
-        db.commit()
-    except sqlite3.Error:
-        db.rollback()
-        return err("Erreur lors de l'import, rien n'a été modifié", 500)
-    return jsonify(added=len(new_c), rights=len(new_r), payments=len(new_p),
-                   limits=len(new_l), trainings=len(new_t), duplicates=dup)
-
-@app.get("/api/account/export")
-@login_required
-def export_account():
-    db, uid = get_db(), session["uid"]
-    u = db.execute("SELECT email, created_at FROM users WHERE id=?", (uid,)).fetchone()
-    docs = db.execute("SELECT * FROM documents WHERE user_id=? ORDER BY id", (uid,)).fetchall()
-    by_contract = {}
-    for d in docs:
-        by_contract.setdefault(d["contract_id"], []).append(doc_to_dict(d))
-    contracts = [row_to_dict(r, by_contract.get(r["id"], [])) for r in db.execute(
-        "SELECT * FROM contracts WHERE user_id=? ORDER BY end_date DESC", (uid,))]
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("507h-export.json", json.dumps(
-            {"version": APP_VERSION, "email": u["email"], "created_at": u["created_at"],
-             "droits_are": [{k: v for k, v in x.items() if k in (
-                 "annexe", "opening_type", "fct_date", "start_date", "note")}
-                 | {"anniversary_date": x["anniversary_input"], "aj_net": x["aj_net"]}
-                 for x in rights_history(db, uid)],
-             "virements": [{k: v for k, v in p.items() if k != "id"}
-                           for p in payments_list(db, uid)],
-             "plafonds": [{"label": r["label"], "employer_match": r["employer_match"],
-                           "max_days": r["max_days"]}
-                          for r in db.execute("SELECT * FROM day_limits WHERE user_id=? ORDER BY id",
-                                              (uid,))],
-             "formations": [{k: v for k, v in t.items() if k != "id"}
-                            for t in trainings_list(db, uid)],
-             "contracts": contracts}, ensure_ascii=False, indent=2))
-        for d in docs:
-            try:
-                raw = FERNET.decrypt((UPLOAD_DIR / str(uid) / d["stored_name"]).read_bytes())
-            except (FileNotFoundError, InvalidToken):
-                continue
-            z.writestr(f"documents/{d['id']}_{d['kind']}_{d['original_name']}", raw)
-    buf.seek(0)
-    return send_file(buf, mimetype="application/zip", as_attachment=True,
-                     download_name="507h-export.zip")
-
-
-@app.delete("/api/account")
-@login_required
-def delete_account():
-    d = request.get_json(silent=True) or {}
-    uid = session["uid"]
-    if d.get("confirm") != "SUPPRIMER":
-        return err("Tape SUPPRIMER pour confirmer")
-    bad = check_password(uid, str(d.get("password", "")))
-    if bad:
-        return bad
-    db = get_db()
-    db.execute("DELETE FROM users WHERE id=?", (uid,))   # cascade : contrats + documents
-    db.commit()
-    shutil.rmtree(UPLOAD_DIR / str(uid), ignore_errors=True)
-    session.clear()
-    return jsonify(ok=True)
-
-# ---------- Intermittence ----------
-HOURS_TARGET = 507
-TRAINING_CAP = 338
-OPENING_TYPES = ("first", "renewal", "anticipated")
-MAX_RIGHTS = 50
-MAX_PAYMENTS = 1000
-MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+# ===========================================================================
+# Droits ARE, virements et progression
+# ===========================================================================
 
 def add_year(d):
     try:
@@ -1239,47 +1476,9 @@ def add_year(d):
         return d.replace(year=d.year + 1, day=28)
 
 
-def period_totals(db, uid, start, end):
-    zero = {"hours": 0.0, "work_hours": 0.0, "training_hours": 0.0,
-            "gross": 0.0, "contracts": 0, "missing_gross": 0}
-    if start > end:
-        return zero
-    work = gross = 0.0
-    missing = n = 0
-    rows = db.execute(
-        "SELECT hours, start_date, end_date, gross_cents FROM contracts"
-        " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
-        (uid, start.isoformat(), end.isoformat()))
-    for r in rows:
-        s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
-        ratio = ((min(e, end) - max(s, start)).days + 1) / ((e - s).days + 1)
-        work += r["hours"] * ratio
-        if r["gross_cents"] is None:
-            missing += 1
-        else:
-            gross += r["gross_cents"] / 100 * ratio
-        n += 1
-
-    training = 0.0
-    for t in db.execute(
-            "SELECT hours, start_date, end_date FROM trainings"
-            " WHERE user_id=? AND paid_by_are=0 AND end_date >= ? AND start_date <= ?",
-            (uid, start.isoformat(), end.isoformat())):
-        s, e = date.fromisoformat(t["start_date"]), date.fromisoformat(t["end_date"])
-        training += t["hours"] * ((min(e, end) - max(s, start)).days + 1) / ((e - s).days + 1)
-    counted = min(training, TRAINING_CAP)
-
-    return {"hours": round(work + counted, 2), "work_hours": round(work, 2),
-            "training_hours": round(counted, 2), "gross": round(gross, 2),
-            "contracts": n, "missing_gross": missing}
-
-
-def right_dates(r):
-    fct = date.fromisoformat(r["fct_date"])
-    start = date.fromisoformat(r["start_date"])
-    da_auto = add_year(fct)
-    da = date.fromisoformat(r["anniversary_date"]) if r["anniversary_date"] else da_auto
-    return fct, start, da, da_auto
+def overlap_ratio(s, e, start, end):
+    """Part (0 à 1) de l'intervalle [s, e] qui tombe dans [start, end]."""
+    return ((min(e, end) - max(s, start)).days + 1) / ((e - s).days + 1)
 
 
 def current_right(db, uid):
@@ -1288,8 +1487,50 @@ def current_right(db, uid):
         (uid,)).fetchone()
 
 
+def right_dates(r):
+    """(FCT, début d'indemnisation, date anniversaire saisie ou FCT + 12 mois)."""
+    fct = date.fromisoformat(r["fct_date"])
+    start = date.fromisoformat(r["start_date"])
+    da = date.fromisoformat(r["anniversary_date"]) if r["anniversary_date"] else add_year(fct)
+    return fct, start, da
+
+
 def cents(v):
     return None if v is None else v / 100
+
+
+def default_annexe(db, uid):
+    return db.execute("SELECT default_annexe FROM users WHERE id=?", (uid,)).fetchone()[0]
+
+
+def user_annexe(db, uid):
+    """Annexe du droit en cours, à défaut l'annexe par défaut du compte."""
+    r = current_right(db, uid)
+    return r["annexe"] if r else default_annexe(db, uid)
+
+
+def period_totals(db, uid, start, end):
+    """Heures retenues sur [start, end] : travail au prorata des jours, plus formations plafonnées."""
+    if start > end:
+        return {"hours": 0.0, "training_hours": 0.0}
+    work = 0.0
+    for r in db.execute(
+            "SELECT hours, start_date, end_date FROM contracts"
+            " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
+            (uid, start.isoformat(), end.isoformat())):
+        s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
+        work += r["hours"] * overlap_ratio(s, e, start, end)
+
+    training = 0.0      # formations non rémunérées par l'assurance chômage
+    for t in db.execute(
+            "SELECT hours, start_date, end_date FROM trainings"
+            " WHERE user_id=? AND paid_by_are=0 AND end_date >= ? AND start_date <= ?",
+            (uid, start.isoformat(), end.isoformat())):
+        s, e = date.fromisoformat(t["start_date"]), date.fromisoformat(t["end_date"])
+        training += t["hours"] * overlap_ratio(s, e, start, end)
+    counted = min(training, TRAINING_CAP)
+
+    return {"hours": round(work + counted, 2), "training_hours": round(counted, 2)}
 
 
 def rights_history(db, uid):
@@ -1297,7 +1538,7 @@ def rights_history(db, uid):
                       (uid,)).fetchall()
     out = []
     for i, r in enumerate(rows):
-        fct, start, da, _ = right_dates(r)
+        fct, start, da = right_dates(r)
         end, early = da, False
         if i + 1 < len(rows):       # un droit ouvert plus tôt remplace celui-ci
             cut = date.fromisoformat(rows[i + 1]["start_date"]) - timedelta(days=1)
@@ -1310,8 +1551,7 @@ def rights_history(db, uid):
             "anniversary_date": da.isoformat(), "anniversary_input": r["anniversary_date"],
             "end_date": end.isoformat(), "ended_early": early,
             "aj_net": cents(r["aj_net_cents"]), "note": r["note"],
-            "ref_hours": tot["hours"], "ref_gross": tot["gross"],
-            "ref_missing_gross": tot["missing_gross"]})
+            "ref_hours": tot["hours"]})
     out.reverse()
     return out
 
@@ -1321,10 +1561,9 @@ def build_overview(db, uid):
     if not r:
         return None
     today = date.today()
-    fct, start, da, da_auto = right_dates(r)
+    fct, start, da = right_dates(r)
     days_left = (da - today).days
     status = "expired" if days_left < 0 else "soon" if days_left <= 15 else "active"
-    total_days = (da - start).days + 1
     win_start = fct + timedelta(days=1)
     total = period_totals(db, uid, win_start, da)
     done = period_totals(db, uid, win_start, min(da, today))
@@ -1333,20 +1572,39 @@ def build_overview(db, uid):
     return {
         "right_id": r["id"], "annexe": r["annexe"], "opening_type": r["opening_type"],
         "fct_date": fct.isoformat(), "start_date": start.isoformat(),
-        "anniversary_date": da.isoformat(), "anniversary_auto": da_auto.isoformat(),
+        "anniversary_date": da.isoformat(),
         "anniversary_overridden": bool(r["anniversary_date"]),
         "exam_date": (da + timedelta(days=1)).isoformat(),
         "days_left": days_left, "status": status, "aj_net": cents(r["aj_net_cents"]),
-        "elapsed_pct": max(0, min(100, round((today - start).days / max(1, total_days) * 100))),
-        "total_days": total_days,
         "projection": {
             "window_start": win_start.isoformat(), "window_end": da.isoformat(),
             "hours_total": total["hours"], "hours_done": done["hours"],
             "hours_planned": round(total["hours"] - done["hours"], 2),
             "hours_needed": round(needed, 1), "per_week": per_week,
-            "can_request_early": done["hours"] >= HOURS_TARGET and days_left > 0},
             "training_hours": total["training_hours"],
+            "can_request_early": done["hours"] >= HOURS_TARGET and days_left > 0},
     }
+
+
+@app.get("/api/summary")
+@login_required
+def summary():
+    db, uid = get_db(), session["uid"]
+    today = date.today()
+    start, mode = today - timedelta(days=364), "rolling"
+    fct_date = da_iso = None
+    r = current_right(db, uid)
+    if r:
+        fct, _, da = right_dates(r)
+        fct_date, da_iso = fct.isoformat(), da.isoformat()
+        if fct + timedelta(days=1) > start:
+            start, mode = fct + timedelta(days=1), "since_fct"
+    t = period_totals(db, uid, start, today)
+    return jsonify(hours=t["hours"], target=HOURS_TARGET,
+                   training_hours=t["training_hours"],
+                   window_start=start.isoformat(), window_end=today.isoformat(),
+                   mode=mode, fct_date=fct_date, anniversary_date=da_iso,
+                   annexe=user_annexe(db, uid), default_annexe=default_annexe(db, uid))
 
 
 def parse_rights(d):
@@ -1537,532 +1795,9 @@ def delete_payment(pid):
     db.commit()
     return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
 
-# ---------- Statistiques ----------
-PERIODS = {"12m": "12 derniers mois", "year": "Année en cours", "prev_year": "Année précédente",
-               "right": "Droit en cours", "all": "Depuis le début"}
-
-
-def add_months(d, n):
-    m = d.year * 12 + d.month - 1 + n
-    return date(m // 12, m % 12 + 1, 1)
-
-
-def month_list(first, last):
-    out, d = [], first
-    while d <= last:
-        out.append(d.strftime("%Y-%m"))
-        d = add_months(d, 1)
-    return out
-
-
-def spread(s, e, value, since=None, until=None):
-    """Répartit une valeur au prorata des jours du contrat, par mois."""
-    total = (e - s).days + 1
-    out = defaultdict(float)
-    d = s
-    while d <= e:
-        if until is not None and d > until:
-            break
-        nxt = add_months(d, 1)
-        a = max(d, since) if since else d
-        b = min(e, nxt - timedelta(days=1))
-        if until is not None:
-            b = min(b, until)
-        if b >= a:
-            out[d.strftime("%Y-%m")] += value * ((b - a).days + 1) / total
-        d = nxt
-    return out
-
-
-def summarize(items):
-    if not items:
-        return None
-    best = max(items, key=lambda x: x[1])
-    vals = [v for _, v in items]
-    return {"best_month": best[0], "best": round(best[1], 2),
-            "mean": round(statistics.fmean(vals), 2),
-            "median": round(statistics.median(vals), 2), "months": len(vals)}
-
-
-
-def period_bounds(db, uid, key, today):
-    """Retourne (premier mois, dernier mois, jour de départ exact, jour de départ des virements)."""
-    cur = today.replace(day=1)
-    if key == "year":
-        return date(today.year, 1, 1), cur, None, None
-    if key == "prev_year":
-        return date(today.year - 1, 1, 1), date(today.year - 1, 12, 1), None, None
-    if key == "right":
-        r = current_right(db, uid)
-        if r:
-            fct, start, _, _ = right_dates(r)
-            since = fct + timedelta(days=1)    # même base que la page Intermittence
-            return min(since.replace(day=1), cur), cur, since, start
-    if key == "all":
-        c = db.execute("SELECT MIN(start_date) FROM contracts WHERE user_id=?", (uid,)).fetchone()[0]
-        p = db.execute("SELECT MIN(month_covered) FROM payments WHERE user_id=?", (uid,)).fetchone()[0]
-        cands = []
-        if c:
-            cands.append(date.fromisoformat(c).replace(day=1))
-        if p:
-            cands.append(date.fromisoformat(p + "-01"))
-        if cands:
-            return min(min(cands), cur), cur, None, None
-    return add_months(cur, -11), cur, None, None
-
-def bucket(store, key, name):
-    return store.setdefault(key, {"name": name, "hours": 0.0, "net": 0.0, "contracts": 0})
-
-
-def ranked(store):
-    return sorted(({**v, "hours": round(v["hours"], 1), "net": round(v["net"], 2)}
-                   for v in store.values()), key=lambda v: -v["hours"])
-
-def build_stats(db, uid, key):
-    if key not in PERIODS:
-        key = "12m"
-    today = date.today()
-    first, last, since, pay_since = period_bounds(db, uid, key, today)
-    lower = since or first
-    months = month_list(first, last)
-    mset, cur_key, first_key = set(months), today.strftime("%Y-%m"), first.strftime("%Y-%m")
-    range_end = add_months(last, 1) - timedelta(days=1)
-    partial_first = since is not None and since.day != 1
-
-    hours, salary, are = defaultdict(float), defaultdict(float), defaultdict(float)
-    emp, jobs, no_net = {}, {}, 0
-    rows = db.execute(
-        "SELECT employer, job_title, hours, start_date, end_date, net_cents FROM contracts"
-        " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
-        (uid, lower.isoformat(), range_end.isoformat()))
-    for r in rows:
-        s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
-        h_in = {m: v for m, v in spread(s, e, r["hours"], since, today).items() if m in mset}
-        if not h_in:
-            continue
-        job = " ".join((r["job_title"] or "").split())
-        targets = (
-            bucket(emp, " ".join(r["employer"].lower().split()), r["employer"]),
-            bucket(jobs, job.lower(), job or "Non renseigné"),
-        )
-        for t in targets:
-            t["contracts"] += 1
-        for m, v in h_in.items():
-            hours[m] += v
-            for t in targets:
-                t["hours"] += v
-        if r["net_cents"] is None:
-            no_net += 1
-        else:
-            for m, v in spread(s, e, r["net_cents"] / 100, since, today).items():
-                if m in mset:
-                    salary[m] += v
-                    for t in targets:
-                        t["net"] += v
-    pay_floor = pay_since.isoformat() if pay_since else None
-    for p in db.execute("SELECT month_covered, paid_on, amount_cents FROM payments WHERE user_id=?", (uid,)):
-        if p["month_covered"] in mset and (pay_floor is None or p["paid_on"] >= pay_floor):
-            are[p["month_covered"]] += p["amount_cents"] / 100
-
-    series = [{
-        "month": m, "hours": round(hours[m], 1), "salary": round(salary[m], 2),
-        "are": round(are[m], 2), "total": round(salary[m] + are[m], 2),
-        "complete": m < cur_key and not (partial_first and m == first_key),
-    } for m in months]
-    done = [x for x in series if x["complete"]]
-    end_day = min(today, range_end)
-    days = (end_day - lower).days + 1
-    total_hours = sum(x["hours"] for x in series)
-
-    hist = rights_history(db, uid)
-    events = {
-        "contracts": [
-            {"s": r["start_date"], "e": r["end_date"], "h": r["hours"],
-             "emp": r["employer"], "mission": r["mission"]}
-            for r in db.execute(
-                "SELECT employer, mission, hours, start_date, end_date"
-                " FROM contracts WHERE user_id=?", (uid,))],
-        "payments": [
-            {"d": p["paid_on"], "a": p["amount"], "m": p["month_covered"]}
-            for p in payments_list(db, uid)],
-        "rights": [],
-    }
-    for r in hist:
-        events["rights"] += [
-            {"kind": "fct", "d": r["fct_date"]},
-            {"kind": "start", "d": r["start_date"]},
-            {"kind": "anniv", "d": r["anniversary_date"], "early": r["ended_early"]}]
-        if r["ended_early"]:
-            events["rights"].append({"kind": "end", "d": r["end_date"]})
-
-    return {
-        "period": {"key": key, "label": PERIODS[key],
-                   "first": lower.isoformat(), "last": end_day.isoformat()},
-        "series": series,
-        "hours_total": round(total_hours, 1),
-        "hours_per_week": round(total_hours / (days / 7), 1) if days > 0 else None,
-        "hours_stats": summarize([(x["month"], x["hours"]) for x in done]),
-        "income": {k: summarize([(x["month"], x[k]) for x in done])
-                   for k in ("salary", "are", "total")},
-        "employers": ranked(emp), "jobs": ranked(jobs),
-        "no_net": no_net, "events": events, "annexe": user_annexe(db, uid),
-    }
-
-
-@app.get("/api/stats")
-@login_required
-def get_stats():
-    return jsonify(build_stats(get_db(), session["uid"], request.args.get("period", "12m")))
-
-# ---------- Pages publiques liées aux e-mails ----------
-@app.context_processor
-def inject_mail_state():
-    unverified = False
-    uid = session.get("uid")
-    if uid and mail_enabled():
-        r = get_db().execute("SELECT email_verified FROM users WHERE id=?", (uid,)).fetchone()
-        unverified = bool(r) and not r["email_verified"]
-    return {"email_unverified": unverified, "mail_on": mail_enabled()}
-
-
-@app.get("/forgot")
-def forgot_page():
-    return render_template("forgot.html")
-
-
-@app.get("/reset")
-def reset_page():
-    return render_template("reset.html")
-
-
-@app.get("/verify")
-def verify_page():
-    return render_template("confirm.html")
-
-
-# ---------- Vérification de l'adresse e-mail ----------
-@app.post("/api/email/send-verification")
-@login_required
-def resend_verification():
-    if not mail_enabled():
-        return err("L'envoi d'e-mails n'est pas configuré sur ce serveur", 503)
-    db, uid = get_db(), session["uid"]
-    u = db.execute("SELECT email, email_verified FROM users WHERE id=?", (uid,)).fetchone()
-    if u["email_verified"]:
-        return jsonify(ok=True, message="Adresse déjà vérifiée.")
-    if hit(f"verify|{uid}", 3):
-        return err("Trop de demandes, réessaie dans 15 minutes", 429)
-    send_verification(uid, u["email"])
-    return jsonify(ok=True, message="Lien envoyé. Pense à vérifier tes courriers indésirables.")
-
-
-@app.post("/api/email/confirm")
-def confirm_email():
-    db = get_db()
-    row = consume_token(db, str((request.get_json(silent=True) or {}).get("token", "")),
-                        ("verify", "email_change"))
-    if not row:
-        return err("Lien invalide ou expiré")
-    try:
-        if row["purpose"] == "verify":
-            db.execute("UPDATE users SET email_verified=1 WHERE id=?", (row["user_id"],))
-        else:
-            db.execute("UPDATE users SET email=?, email_verified=1 WHERE id=?",
-                       (row["new_email"], row["user_id"]))
-            db.execute("DELETE FROM email_tokens WHERE user_id=? AND purpose='verify'",
-                       (row["user_id"],))
-        db.commit()
-    except sqlite3.IntegrityError:
-        return err("Cette adresse est déjà utilisée par un autre compte", 409)
-    return jsonify(ok=True, kind=row["purpose"])
-
-
-# ---------- Mot de passe oublié ----------
-@app.post("/api/password/forgot")
-def forgot_password():
-    if not mail_enabled():
-        return err("L'envoi d'e-mails n'est pas configuré sur ce serveur", 503)
-    email = str((request.get_json(silent=True) or {}).get("email", "")).strip().lower()
-    if hit(f"forgot-ip|{request.remote_addr}", 10) or hit(f"forgot|{email}", 3):
-        return err("Trop de demandes, réessaie dans 15 minutes", 429)
-    if valid_email(email):
-        db = get_db()
-        u = db.execute("SELECT id FROM users WHERE email=? AND email_verified=1", (email,)).fetchone()
-        if u:
-            raw = make_token(db, u["id"], "reset")
-            send_action_mail(
-                email, "507h – Réinitialisation du mot de passe",
-                heading="Choisis un nouveau mot de passe",
-                intro="Tu as demandé la réinitialisation du mot de passe de ton compte 507h.",
-                button="Choisir un nouveau mot de passe",
-                link=f"{base_url()}/reset?token={raw}",
-                expires="Ce lien est valable 1 heure et ne peut servir qu'une fois.",
-                outro="Si tu n'es pas à l'origine de cette demande, ignore ce message : ton mot de passe "
-                      "ne changera pas. Après un changement, tous tes appareils sont déconnectés.",
-                preheader="Lien valable 1 heure pour choisir un nouveau mot de passe.")
-    return jsonify(ok=True, message="Si un compte vérifié existe pour cette adresse, "
-                                    "un e-mail vient d'être envoyé.")
-
-
-@app.post("/api/password/reset")
-def reset_password():
-    d = request.get_json(silent=True) or {}
-    pwd = str(d.get("password", ""))
-    if not (12 <= len(pwd) <= 200):
-        return err("Mot de passe : 12 caractères minimum")
-    if pwd != str(d.get("password_confirm", "")):
-        return err("Les mots de passe ne correspondent pas")
-    db = get_db()
-    row = consume_token(db, str(d.get("token", "")), ("reset",))
-    if not row:
-        return err("Lien invalide ou expiré")
-    db.execute("UPDATE users SET password_hash=?, session_version=session_version+1 WHERE id=?",
-               (generate_password_hash(pwd), row["user_id"]))
-    db.commit()
-    session.clear()
-    return jsonify(ok=True)
-
-
-# ---------- Double authentification ----------
-@app.post("/api/2fa/setup")
-@login_required
-def twofa_setup():
-    db, uid = get_db(), session["uid"]
-    bad = check_password(uid, str((request.get_json(silent=True) or {}).get("password", "")))
-    if bad:
-        return bad
-    if db.execute("SELECT totp_enabled FROM users WHERE id=?", (uid,)).fetchone()[0]:
-        return err("La double authentification est déjà activée")
-    secret = base64.b32encode(secrets.token_bytes(20)).decode()
-    db.execute("UPDATE users SET totp_secret=?, totp_enabled=0, totp_last_step=0 WHERE id=?",
-               (FERNET.encrypt(secret.encode()).decode(), uid))
-    db.commit()
-    return jsonify(secret=secret)
-
-
-@app.get("/api/2fa/qr.svg")
-@login_required
-def twofa_qr():
-    u = get_db().execute("SELECT email, totp_secret, totp_enabled FROM users WHERE id=?",
-                         (session["uid"],)).fetchone()
-    if not u or not u["totp_secret"] or u["totp_enabled"]:
-        abort(404)
-    secret = FERNET.decrypt(u["totp_secret"].encode()).decode()
-    label = quote(f"507h:{u['email']}", safe="@:")
-    uri = f"otpauth://totp/{label}?secret={secret}&issuer=507h&algorithm=SHA1&digits=6&period=30"
-    buf = io.BytesIO()
-    segno.make(uri, error="m").save(buf, kind="svg", scale=6, border=2,
-                                    dark="#000000", light="#ffffff")
-    return Response(buf.getvalue(), mimetype="image/svg+xml")
-
-
-@app.post("/api/2fa/enable")
-@login_required
-def twofa_enable():
-    db, uid = get_db(), session["uid"]
-    if hit(f"2fa-setup|{uid}", 10):
-        return err("Trop de tentatives, réessaie dans 15 minutes", 429)
-    u = db.execute("SELECT totp_secret, totp_enabled FROM users WHERE id=?", (uid,)).fetchone()
-    if not u["totp_secret"] or u["totp_enabled"]:
-        return err("Lance d'abord la configuration")
-    secret = FERNET.decrypt(u["totp_secret"].encode()).decode()
-    step = check_totp(secret, (request.get_json(silent=True) or {}).get("code"), 0)
-    if not step:
-        return err("Code incorrect")
-    codes = new_recovery_codes(db, uid)
-    db.execute("UPDATE users SET totp_enabled=1, totp_last_step=? WHERE id=?", (step, uid))
-    db.commit()
-    bump_sessions(db, uid)      # déconnecte les autres appareils, garde celui-ci
-    return jsonify(recovery_codes=codes)
-
-
-@app.post("/api/2fa/disable")
-@login_required
-def twofa_disable():
-    db, uid = get_db(), session["uid"]
-    d = request.get_json(silent=True) or {}
-    bad = check_password(uid, str(d.get("password", "")))
-    if bad:
-        return bad
-    _, bad = second_factor_ok(db, uid, d.get("code"))
-    if bad:
-        return bad
-    db.execute("UPDATE users SET totp_secret=NULL, totp_enabled=0, totp_last_step=0 WHERE id=?", (uid,))
-    db.execute("DELETE FROM recovery_codes WHERE user_id=?", (uid,))
-    db.commit()
-    return jsonify(ok=True)
-
-
-@app.post("/api/2fa/recovery")
-@login_required
-def twofa_recovery():
-    db, uid = get_db(), session["uid"]
-    d = request.get_json(silent=True) or {}
-    bad = check_password(uid, str(d.get("password", "")))
-    if bad:
-        return bad
-    _, bad = second_factor_ok(db, uid, d.get("code"))
-    if bad:
-        return bad
-    codes = new_recovery_codes(db, uid)
-    db.commit()
-    return jsonify(recovery_codes=codes)
-
-# ---------- Plafonds annuels de jours travaillés ----------
-HOURS_PER_DAY = 8
-MAX_LIMITS = 10
-
-
-def fold_text(s):
-    s = unicodedata.normalize("NFD", str(s or ""))
-    return "".join(ch for ch in s if not unicodedata.combining(ch)).lower().strip()
-
-
-def contract_days(hours, days_worked, cachets=None):
-    """Jours d'un contrat : valeur saisie, sinon un jour par cachet, sinon heures / 8."""
-    if days_worked is not None:
-        return float(days_worked), False
-    if cachets:
-        return float(cachets), True
-    return hours / HOURS_PER_DAY, True
-
-
-def limit_usage(db, uid, rule, year, today):
-    y0, y1 = date(year, 1, 1), date(year, 12, 31)
-    match = fold_text(rule["employer_match"])
-    done = planned = 0.0
-    n = estimated = 0
-    rows = db.execute(
-        "SELECT employer, hours, start_date, end_date, days_worked, cachets FROM contracts"
-        " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
-        (uid, y0.isoformat(), y1.isoformat()))
-    for r in rows:
-        if match not in fold_text(r["employer"]):
-            continue
-        s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
-        days, est = contract_days(r["hours"], r["days_worked"], r["cachets"])
-        span = (e - s).days + 1
-        lo, hi = max(s, y0), min(e, y1)
-        in_year = (hi - lo).days + 1
-        cut = min(hi, today)
-        past = (cut - lo).days + 1 if cut >= lo else 0
-        done += days * past / span          # répartition au prorata des jours du contrat
-        planned += days * (in_year - past) / span
-        n += 1
-        estimated += est
-    total = done + planned
-    remaining = rule["max_days"] - total
-    per_week = None
-    if year == today.year and remaining > 0:
-        days_left = (y1 - today).days
-        if days_left > 0:
-            per_week = round(remaining / (days_left / 7), 1)
-    return {
-        "id": rule["id"], "label": rule["label"], "employer_match": rule["employer_match"],
-        "max_days": rule["max_days"], "done": round(done, 1), "planned": round(planned, 1),
-        "total": round(total, 1), "remaining": round(remaining, 1),
-        "over": round(total, 1) > rule["max_days"], "per_week": per_week,
-        "estimated": estimated, "contracts": n,
-    }
-
-
-def parse_limit(d):
-    if not isinstance(d, dict):
-        raise ValueError("Données invalides")
-    label = " ".join(str(d.get("label", "")).split())
-    match = " ".join(str(d.get("employer_match", "")).split())
-    if not label or len(label) > 60:
-        raise ValueError("Nom requis (60 caractères max)")
-    if not match or len(match) > 80:
-        raise ValueError("Texte de l'employeur requis (80 caractères max)")
-    try:
-        max_days = int(d.get("max_days") or 80)
-    except (TypeError, ValueError):
-        raise ValueError("Nombre de jours invalide")
-    if not 1 <= max_days <= 366:
-        raise ValueError("Jours maximum : de 1 à 366")
-    return (label, match, max_days)
-
-
-@app.get("/api/limits")
-@login_required
-def list_limits():
-    db, uid = get_db(), session["uid"]
-    today = date.today()
-    try:
-        year = int(request.args.get("year", today.year))
-    except ValueError:
-        year = today.year
-    year = min(max(year, 2000), 2100)
-    rules = db.execute("SELECT * FROM day_limits WHERE user_id=? ORDER BY id", (uid,)).fetchall()
-    return jsonify(year=year, rules=[limit_usage(db, uid, r, year, today) for r in rules])
-
-
-@app.post("/api/limits")
-@login_required
-def add_limit():
-    try:
-        vals = parse_limit(request.get_json(silent=True))
-    except ValueError as e:
-        return err(str(e))
-    db, uid = get_db(), session["uid"]
-    if db.execute("SELECT COUNT(*) FROM day_limits WHERE user_id=?", (uid,)).fetchone()[0] >= MAX_LIMITS:
-        return err(f"{MAX_LIMITS} plafonds maximum")
-    cur = db.execute("INSERT INTO day_limits(user_id, label, employer_match, max_days)"
-                     " VALUES (?,?,?,?)", (uid, *vals))
-    db.commit()
-    return jsonify(id=cur.lastrowid), 201
-
-
-@app.put("/api/limits/<int:lid>")
-@login_required
-def edit_limit(lid):
-    try:
-        vals = parse_limit(request.get_json(silent=True))
-    except ValueError as e:
-        return err(str(e))
-    db = get_db()
-    cur = db.execute("UPDATE day_limits SET label=?, employer_match=?, max_days=?"
-                     " WHERE id=? AND user_id=?", (*vals, lid, session["uid"]))
-    db.commit()
-    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
-
-
-@app.delete("/api/limits/<int:lid>")
-@login_required
-def delete_limit(lid):
-    db = get_db()
-    cur = db.execute("DELETE FROM day_limits WHERE id=? AND user_id=?", (lid, session["uid"]))
-    db.commit()
-    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
-
-def default_annexe(db, uid):
-    return db.execute("SELECT default_annexe FROM users WHERE id=?", (uid,)).fetchone()[0]
-
-
-def user_annexe(db, uid):
-    """Annexe du droit en cours, à défaut l'annexe par défaut du compte."""
-    r = current_right(db, uid)
-    return r["annexe"] if r else default_annexe(db, uid)
-
-
-@app.post("/api/account/preferences")
-@login_required
-def save_preferences():
-    d = request.get_json(silent=True) or {}
-    try:
-        annexe = int(d.get("default_annexe"))
-    except (TypeError, ValueError):
-        return err("Annexe invalide")
-    if annexe not in (8, 10):
-        return err("Annexe invalide")
-    db = get_db()
-    db.execute("UPDATE users SET default_annexe=? WHERE id=?", (annexe, session["uid"]))
-    db.commit()
-    return jsonify(ok=True)
-
-MAX_TRAININGS = 200
-
+# ===========================================================================
+# Formations
+# ===========================================================================
 
 def parse_training(d):
     if not isinstance(d, dict):
@@ -2146,6 +1881,319 @@ def delete_training(tid):
     db.commit()
     return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
 
+# ===========================================================================
+# Plafonds annuels de jours travaillés
+# ===========================================================================
+
+def fold_text(s):
+    s = unicodedata.normalize("NFD", str(s or ""))
+    return "".join(ch for ch in s if not unicodedata.combining(ch)).lower().strip()
+
+
+def contract_days(hours, days_worked, cachets=None):
+    """Jours d'un contrat : valeur saisie, sinon un jour par cachet, sinon heures / 8."""
+    if days_worked is not None:
+        return float(days_worked)
+    if cachets:
+        return float(cachets)
+    return hours / HOURS_PER_DAY
+
+
+def limit_usage(db, uid, rule, year, today):
+    y0, y1 = date(year, 1, 1), date(year, 12, 31)
+    match = fold_text(rule["employer_match"])
+    done = planned = 0.0
+    rows = db.execute(
+        "SELECT employer, hours, start_date, end_date, days_worked, cachets FROM contracts"
+        " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
+        (uid, y0.isoformat(), y1.isoformat()))
+    for r in rows:
+        if match not in fold_text(r["employer"]):
+            continue
+        s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
+        days = contract_days(r["hours"], r["days_worked"], r["cachets"])
+        span = (e - s).days + 1
+        lo, hi = max(s, y0), min(e, y1)
+        in_year = (hi - lo).days + 1
+        cut = min(hi, today)
+        past = (cut - lo).days + 1 if cut >= lo else 0
+        done += days * past / span          # répartition au prorata des jours du contrat
+        planned += days * (in_year - past) / span
+    total = done + planned
+    remaining = rule["max_days"] - total
+    per_week = None
+    if year == today.year and remaining > 0:
+        days_left = (y1 - today).days
+        if days_left > 0:
+            per_week = round(remaining / (days_left / 7), 1)
+    return {
+        "id": rule["id"], "label": rule["label"], "employer_match": rule["employer_match"],
+        "max_days": rule["max_days"], "done": round(done, 1), "planned": round(planned, 1),
+        "total": round(total, 1), "remaining": round(remaining, 1),
+        "over": round(total, 1) > rule["max_days"], "per_week": per_week,
+    }
+
+
+def parse_limit(d):
+    if not isinstance(d, dict):
+        raise ValueError("Données invalides")
+    label = " ".join(str(d.get("label", "")).split())
+    match = " ".join(str(d.get("employer_match", "")).split())
+    if not label or len(label) > 60:
+        raise ValueError("Nom requis (60 caractères max)")
+    if not match or len(match) > 80:
+        raise ValueError("Texte de l'employeur requis (80 caractères max)")
+    try:
+        max_days = int(d.get("max_days") or 80)
+    except (TypeError, ValueError):
+        raise ValueError("Nombre de jours invalide")
+    if not 1 <= max_days <= 366:
+        raise ValueError("Jours maximum : de 1 à 366")
+    return (label, match, max_days)
+
+
+@app.get("/api/limits")
+@login_required
+def list_limits():
+    db, uid = get_db(), session["uid"]
+    today = date.today()
+    try:
+        year = int(request.args.get("year", today.year))
+    except ValueError:
+        year = today.year
+    year = min(max(year, 2000), 2100)
+    rules = db.execute("SELECT * FROM day_limits WHERE user_id=? ORDER BY id", (uid,)).fetchall()
+    return jsonify(year=year, rules=[limit_usage(db, uid, r, year, today) for r in rules])
+
+
+@app.post("/api/limits")
+@login_required
+def add_limit():
+    try:
+        vals = parse_limit(request.get_json(silent=True))
+    except ValueError as e:
+        return err(str(e))
+    db, uid = get_db(), session["uid"]
+    if db.execute("SELECT COUNT(*) FROM day_limits WHERE user_id=?", (uid,)).fetchone()[0] >= MAX_LIMITS:
+        return err(f"{MAX_LIMITS} plafonds maximum")
+    cur = db.execute("INSERT INTO day_limits(user_id, label, employer_match, max_days)"
+                     " VALUES (?,?,?,?)", (uid, *vals))
+    db.commit()
+    return jsonify(id=cur.lastrowid), 201
+
+
+@app.put("/api/limits/<int:lid>")
+@login_required
+def edit_limit(lid):
+    try:
+        vals = parse_limit(request.get_json(silent=True))
+    except ValueError as e:
+        return err(str(e))
+    db = get_db()
+    cur = db.execute("UPDATE day_limits SET label=?, employer_match=?, max_days=?"
+                     " WHERE id=? AND user_id=?", (*vals, lid, session["uid"]))
+    db.commit()
+    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
+
+
+@app.delete("/api/limits/<int:lid>")
+@login_required
+def delete_limit(lid):
+    db = get_db()
+    cur = db.execute("DELETE FROM day_limits WHERE id=? AND user_id=?", (lid, session["uid"]))
+    db.commit()
+    return jsonify(ok=True) if cur.rowcount else err("Introuvable", 404)
+
+# ===========================================================================
+# Statistiques et calendrier
+# ===========================================================================
+
+def add_months(d, n):
+    m = d.year * 12 + d.month - 1 + n
+    return date(m // 12, m % 12 + 1, 1)
+
+
+def month_list(first, last):
+    out, d = [], first
+    while d <= last:
+        out.append(d.strftime("%Y-%m"))
+        d = add_months(d, 1)
+    return out
+
+
+def spread(s, e, value, since=None, until=None):
+    """Répartit une valeur au prorata des jours du contrat, par mois."""
+    total = (e - s).days + 1
+    out = defaultdict(float)
+    d = s
+    while d <= e:
+        if until is not None and d > until:
+            break
+        nxt = add_months(d, 1)
+        a = max(d, since) if since else d
+        b = min(e, nxt - timedelta(days=1))
+        if until is not None:
+            b = min(b, until)
+        if b >= a:
+            out[d.strftime("%Y-%m")] += value * ((b - a).days + 1) / total
+        d = nxt
+    return out
+
+
+def summarize(items):
+    if not items:
+        return None
+    best = max(items, key=lambda x: x[1])
+    vals = [v for _, v in items]
+    return {"best_month": best[0], "best": round(best[1], 2),
+            "mean": round(statistics.fmean(vals), 2),
+            "median": round(statistics.median(vals), 2)}
+
+
+def period_bounds(db, uid, key, today):
+    """Retourne (premier mois, dernier mois, jour de départ exact, jour de départ des virements)."""
+    cur = today.replace(day=1)
+    if key == "year":
+        return date(today.year, 1, 1), cur, None, None
+    if key == "prev_year":
+        return date(today.year - 1, 1, 1), date(today.year - 1, 12, 1), None, None
+    if key == "right":
+        r = current_right(db, uid)
+        if r:
+            fct, start, _ = right_dates(r)
+            since = fct + timedelta(days=1)    # même base que la page Intermittence
+            return min(since.replace(day=1), cur), cur, since, start
+    if key == "all":
+        c = db.execute("SELECT MIN(start_date) FROM contracts WHERE user_id=?", (uid,)).fetchone()[0]
+        p = db.execute("SELECT MIN(month_covered) FROM payments WHERE user_id=?", (uid,)).fetchone()[0]
+        cands = []
+        if c:
+            cands.append(date.fromisoformat(c).replace(day=1))
+        if p:
+            cands.append(date.fromisoformat(p + "-01"))
+        if cands:
+            return min(min(cands), cur), cur, None, None
+    return add_months(cur, -11), cur, None, None
+
+
+def bucket(store, key, name):
+    return store.setdefault(key, {"name": name, "hours": 0.0, "net": 0.0, "contracts": 0})
+
+
+def ranked(store):
+    return sorted(({**v, "hours": round(v["hours"], 1), "net": round(v["net"], 2)}
+                   for v in store.values()), key=lambda v: -v["hours"])
+
+
+def build_stats(db, uid, key):
+    if key not in PERIODS:
+        key = "12m"
+    today = date.today()
+    first, last, since, pay_since = period_bounds(db, uid, key, today)
+    lower = since or first
+    months = month_list(first, last)
+    mset, cur_key, first_key = set(months), today.strftime("%Y-%m"), first.strftime("%Y-%m")
+    range_end = add_months(last, 1) - timedelta(days=1)
+    partial_first = since is not None and since.day != 1
+
+    hours, salary, are = defaultdict(float), defaultdict(float), defaultdict(float)
+    emp, jobs, no_net = {}, {}, 0
+    rows = db.execute(
+        "SELECT employer, job_title, hours, start_date, end_date, net_cents FROM contracts"
+        " WHERE user_id=? AND end_date >= ? AND start_date <= ?",
+        (uid, lower.isoformat(), range_end.isoformat()))
+    for r in rows:
+        s, e = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
+        h_in = {m: v for m, v in spread(s, e, r["hours"], since, today).items() if m in mset}
+        if not h_in:
+            continue
+        job = " ".join((r["job_title"] or "").split())
+        targets = (
+            bucket(emp, " ".join(r["employer"].lower().split()), r["employer"]),
+            bucket(jobs, job.lower(), job or "Non renseigné"),
+        )
+        for t in targets:
+            t["contracts"] += 1
+        for m, v in h_in.items():
+            hours[m] += v
+            for t in targets:
+                t["hours"] += v
+        if r["net_cents"] is None:
+            no_net += 1
+        else:
+            for m, v in spread(s, e, r["net_cents"] / 100, since, today).items():
+                if m in mset:
+                    salary[m] += v
+                    for t in targets:
+                        t["net"] += v
+    pay_floor = pay_since.isoformat() if pay_since else None
+    for p in db.execute("SELECT month_covered, paid_on, amount_cents FROM payments WHERE user_id=?", (uid,)):
+        if p["month_covered"] in mset and (pay_floor is None or p["paid_on"] >= pay_floor):
+            are[p["month_covered"]] += p["amount_cents"] / 100
+
+    series = [{
+        "month": m, "hours": round(hours[m], 1), "salary": round(salary[m], 2),
+        "are": round(are[m], 2), "total": round(salary[m] + are[m], 2),
+        "complete": m < cur_key and not (partial_first and m == first_key),
+    } for m in months]
+    done = [x for x in series if x["complete"]]
+    end_day = min(today, range_end)
+    days = (end_day - lower).days + 1
+    total_hours = sum(x["hours"] for x in series)
+
+    return {
+        "period": {"key": key, "label": PERIODS[key],
+                   "first": lower.isoformat(), "last": end_day.isoformat()},
+        "series": series,
+        "hours_total": round(total_hours, 1),
+        "hours_per_week": round(total_hours / (days / 7), 1) if days > 0 else None,
+        "hours_stats": summarize([(x["month"], x["hours"]) for x in done]),
+        "income": {k: summarize([(x["month"], x[k]) for x in done])
+                   for k in ("salary", "are", "total")},
+        "employers": ranked(emp), "jobs": ranked(jobs),
+        "no_net": no_net, "annexe": user_annexe(db, uid),
+    }
+
+
+@app.get("/api/stats")
+@login_required
+def get_stats():
+    return jsonify(build_stats(get_db(), session["uid"], request.args.get("period", "12m")))
+
+
+def build_events(db, uid):
+    """Contrats, virements et repères des droits du calendrier (indépendants de la période)."""
+    events = {
+        "contracts": [
+            {"s": r["start_date"], "e": r["end_date"], "h": r["hours"],
+             "emp": r["employer"], "mission": r["mission"]}
+            for r in db.execute(
+                "SELECT employer, mission, hours, start_date, end_date"
+                " FROM contracts WHERE user_id=?", (uid,))],
+        "payments": [
+            {"d": p["paid_on"], "a": p["amount"], "m": p["month_covered"]}
+            for p in payments_list(db, uid)],
+        "rights": [],
+    }
+    for r in rights_history(db, uid):
+        events["rights"] += [
+            {"kind": "fct", "d": r["fct_date"]},
+            {"kind": "start", "d": r["start_date"]},
+            {"kind": "anniv", "d": r["anniversary_date"], "early": r["ended_early"]}]
+        if r["ended_early"]:
+            events["rights"].append({"kind": "end", "d": r["end_date"]})
+    return events
+
+
+@app.get("/api/calendar")
+@login_required
+def get_calendar():
+    return jsonify(build_events(get_db(), session["uid"]))
+
+# ===========================================================================
+# Développement et lancement
+# ===========================================================================
+
 if os.environ.get("DEV") == "1":
     @app.get("/dev/mail")
     def mail_preview():
@@ -2160,5 +2208,9 @@ if os.environ.get("DEV") == "1":
             return Response(render_template("mail/action.txt", **ctx), mimetype="text/plain")
         return render_template("mail/action.html", **ctx)
 
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", debug=os.environ.get("DEV") == "1", port=5007)
+    dev = os.environ.get("DEV") == "1"
+    host = os.environ.get("HOST", "0.0.0.0")
+    # Le débogueur interactif de Werkzeug exécute du code : jamais accessible depuis le réseau
+    app.run(host=host, port=5007, debug=dev, use_debugger=dev and host in ("127.0.0.1", "localhost"))

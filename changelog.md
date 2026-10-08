@@ -3,6 +3,41 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.22.2] - 2026-10-08
+
+### Vérifié
+- Tous les gabarits HTML hors e-mails sont structurellement valides (balises équilibrées), sans identifiant dupliqué.
+- Les identifiants, champs de formulaires et endpoints référencés par les scripts correspondent aux gabarits et aux routes disponibles.
+- `MAIL_CONSOLE=1` est prioritaire sur le SMTP : les e-mails sont écrits dans les journaux et aucun e-mail n'est envoyé.
+
+### Corrigé
+- Page Intermittence : la ligne « Dont formation (retenue) » du bloc Détails n'apparaissait jamais, car `training_hours` était placé hors de `projection` dans la réponse de l'API.
+- Calendrier d'activité : un clic sur les flèches avant la fin du chargement des données ne provoque plus d'erreur.
+- Débogueur de Werkzeug : il n'est plus activé quand l'application écoute sur une adresse autre que locale (`HOST`, `0.0.0.0` par défaut), car il permet d'exécuter du code.
+
+### Modifié
+- `main.py` réorganisé par domaines (configuration, base de données, sécurité, e-mails, API, statistiques…), constantes et limites regroupées, imports triés, migrations factorisées (`columns` et `add_column`).
+- Limitation des tentatives : fonctions `record_fail`, `clear_fails` et `_recent` à la place de manipulations répétées du dictionnaire `FAILS`.
+- Le mode WAL de SQLite est activé une seule fois au démarrage au lieu de chaque requête.
+- `finish_login` prend l'identifiant et la version de session ; l'inscription et la connexion partagent la même ouverture de session.
+- Scripts : nouveau `common.js` (sélecteur, jeton CSRF, formats, `el`, `kv`, `api`, `bindDialog`, `isMobile`), chargé avant `nav.js`. Les copies de ces fonctions disparaissent des autres scripts ; `auth.js` et `recover.js` utilisent `api` au lieu de leur propre `post`.
+- Tableau de bord : chargement en parallèle des contrats, de la progression, des plafonds et des formations ; employeurs suggérés calculés dans le navigateur ; plafond des formations lu dans la réponse de l'API.
+- Statistiques : les données du calendrier ne sont plus calculées à chaque changement de période ; elles sont chargées à la première ouverture du calendrier.
+- Page Intermittence : la cible des 507 h vient de l'API (`projection.target`).
+- Import : le message indique aussi le nombre de plafonds importés.
+- Numéro de version `0.22.1`.
+- `style.css` nettoyé sans changement visuel volontaire : suppression des règles inutilisées `.span-2` et `.inline-label`, conservation de `select.auto`, regroupement de règles identiques et déplacement de `-webkit-tap-highlight-color` dans la règle `body` principale.
+- Le contour au survol des cases du calendrier est limité aux appareils avec pointeur (`@media (hover: hover)`), évitant l'état de survol persistant après un toucher sur mobile.
+
+### Supprimé
+- Route `GET /api/employers` (remplacée par un calcul côté navigateur).
+- Champs de réponse inutilisés : `contracts` (résumé), `recovery_used`, `elapsed_pct`, `total_days`, `anniversary_auto`, `ref_gross`, `ref_missing_gross`, `estimated`, `contracts` (plafonds), `months`.
+- Calculs de salaire brut, de nombre de contrats et d'heures de travail seules dans `period_totals` (plus aucune estimation d'allocation depuis la 0.5).
+- Seconde définition de `valid_email` (la première était écrasée).
+
+### Ajouté
+- Route `GET /api/calendar` pour le calendrier d'activité.
+
 ## [0.22] - 2026-10-08
 
 ### Ajouté

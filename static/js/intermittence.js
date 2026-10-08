@@ -1,44 +1,9 @@
-const $ = (s) => document.querySelector(s);
-const csrf = document.querySelector('meta[name="csrf-token"]').content;
-const eur = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
-const fdate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('fr-FR');
 const fmonth = (m) => new Date(m + '-01T00:00:00').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-const nf1 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
-const fh = (h) => (h == null ? '–' : `${nf1.format(h)} h`);
-const money = (v) => (v == null ? '–' : eur.format(v));
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const TYPE = { first: 'Première ouverture', renewal: 'Renouvellement', anticipated: 'Demande anticipée' };
 const LIMIT = { rights: 3, payments: 6 };
 const showAll = { rights: false, payments: false };
 let state = { overview: null, rights: [], payments: [], totals: {} };
-
-async function api(path, method = 'GET', body) {
-    const headers = { 'X-CSRF-Token': csrf };
-    if (body) headers['Content-Type'] = 'application/json';
-    const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
-    if (res.status === 401) {
-        location.href = '/login';
-        return;
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Erreur');
-    return data;
-}
-
-function el(tag, text, cls) {
-    const n = document.createElement(tag);
-    if (text !== undefined) n.textContent = text;
-    if (cls) n.className = cls;
-    return n;
-}
-
-function kv(ul, rows) {
-    ul.replaceChildren(...rows.map(([k, v]) => {
-        const li = document.createElement('li');
-        li.append(el('span', k, 'k'), el('strong', v));
-        return li;
-    }));
-}
 
 function editCell(onEdit) {
     const td = el('td');
@@ -66,7 +31,7 @@ function renderCurrent(o) {
         : `${o.days_left} jours restants`;
 
     const p = o.projection;
-    $('#proj-bar').style.width = Math.min(100, (p.hours_total / 507) * 100) + '%';
+    $('#proj-bar').style.width = Math.min(100, (p.hours_total / p.target) * 100) + '%';
     $('#proj-hours').textContent = nf1.format(p.hours_total);
     $('#proj-msg').textContent = p.hours_needed > 0
         ? `Il manque ${fh(p.hours_needed)}` + (p.per_week ? ` · ${fh(p.per_week)} par semaine d'ici l'examen` : '')
@@ -169,16 +134,6 @@ $('#pay-more').onclick = () => {
 };
 
 /* ---------- Modales ---------- */
-function setupDialog(dialog) {
-    dialog.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => dialog.close(); });
-    let down = false;
-    dialog.addEventListener('mousedown', (e) => { down = e.target === dialog; });
-    dialog.addEventListener('click', (e) => {
-        if (e.target === dialog && down) dialog.close();
-        down = false;
-    });
-}
-
 function openDialog(dialog, form, title, values) {
     form.reset();
     form.querySelector('[data-error]').textContent = '';
@@ -220,8 +175,8 @@ const rightDialog = $('#right-dialog');
 const rightForm = $('#right-form');
 const payDialog = $('#payment-dialog');
 const payForm = $('#payment-form');
-setupDialog(rightDialog);
-setupDialog(payDialog);
+bindDialog(rightDialog);
+bindDialog(payDialog);
 bindForm(rightDialog, rightForm, '/api/rights');
 bindForm(payDialog, payForm, '/api/payments');
 bindDelete($('#right-delete'), rightDialog, rightForm, '/api/rights', "Supprimer ce droit de l'historique ?");

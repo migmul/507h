@@ -1,17 +1,5 @@
-const $ = (s) => document.querySelector(s);
-const csrf = document.querySelector('meta[name="csrf-token"]').content;
 let mode = 'login';
 let recoveryMode = false;
-
-async function post(path, body) {
-    const res = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-        body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, data };
-}
 
 function setMode(m) {
     mode = m;
@@ -40,12 +28,14 @@ $('#auth-form').addEventListener('submit', async (e) => {
             return;
         }
     }
-    const r = await post(`/api/${mode}`, body);
-    if (!r.ok) {
-        $('#auth-error').textContent = r.data.error || 'Erreur inattendue';
+        let r;
+    try {
+        r = await api(`/api/${mode}`, 'POST', body);
+    } catch (ex) {
+        $('#auth-error').textContent = ex.message;
         return;
     }
-    if (r.data.needs_2fa) {
+    if (r.needs_2fa) {
         $('#step-credentials').hidden = true;
         $('#twofa-form').hidden = false;
         $('#twofa-form input[name=code]').focus();
@@ -56,12 +46,12 @@ $('#auth-form').addEventListener('submit', async (e) => {
 
 $('#twofa-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const r = await post('/api/login/2fa', { code: new FormData(e.target).get('code') });
-    if (r.ok) {
+        try {
+        await api('/api/login/2fa', 'POST', { code: new FormData(e.target).get('code') });
         location.href = '/';
-        return;
+    } catch (ex) {
+        $('#twofa-error').textContent = ex.message;
     }
-    $('#twofa-error').textContent = r.data.error || 'Erreur inattendue';
 });
 
 $('#use-recovery').onclick = () => {

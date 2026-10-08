@@ -1,10 +1,3 @@
-const $ = (s) => document.querySelector(s);
-const csrf = document.querySelector('meta[name="csrf-token"]').content;
-const eur = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
-const fdate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('fr-FR');
-const nf1 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
-const fh = (h) => (h == null ? '–' : `${nf1.format(h)} h`);
-const money = (v) => (v === null || v === undefined ? '–' : eur.format(v));
 const KIND_LABEL = { contrat: 'Contrat', aem: 'AEM', bulletin: 'Bulletin' };
 
 // recherche : sans accents ni casse ; comparaison : sans casse ni espaces multiples
@@ -17,7 +10,7 @@ const form = $('#contract-form');
 let contracts = [];
 let employers = [];
 let editingDocs = [];
-let dupMap = new Map();
+let dupCount = new Map();
 const view = { q: '', year: '', employer: '', status: '', group: true };
 const THIS_YEAR = String(new Date().getFullYear());
 const toggled = new Map();    // année -> dépliée (true) ou repliée (false), choisi à la main
@@ -35,43 +28,16 @@ const COLUMNS = [
 ];
 let sort = { key: 'end_date', dir: 'desc' };
 
-async function api(path, method = 'GET', body) {
-    const headers = { 'X-CSRF-Token': csrf };
-    let payload;
-    if (body instanceof FormData) {
-        payload = body;
-    } else if (body) {
-        headers['Content-Type'] = 'application/json';
-        payload = JSON.stringify(body);
-    }
-    const res = await fetch(path, { method, headers, body: payload });
-    if (res.status === 401) {
-        location.href = '/login';
-        return;
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Erreur');
-    return data;
-}
-
-function el(tag, text, cls) {
-    const n = document.createElement(tag);
-    if (text !== undefined) n.textContent = text;
-    if (cls) n.className = cls;
-    return n;
-}
-
 /* ---------- Doublons ---------- */
 function computeDuplicates() {
-    dupMap = new Map();
+    dupCount = new Map();
     for (const c of contracts) {
         const k = dupKey(c);
-        if (!dupMap.has(k)) dupMap.set(k, []);
-        dupMap.get(k).push(c.id);
+        dupCount.set(k, (dupCount.get(k) || 0) + 1);
     }
 }
 
-const isDup = (c) => (dupMap.get(dupKey(c)) || []).length > 1;
+const isDup = (c) => dupCount.get(dupKey(c)) > 1;
 
 function findDuplicate(v, excludeId) {
     if (!v.employer || !v.start_date || !v.end_date) return null;
@@ -264,11 +230,7 @@ function contractRow(c) {
     const edit = el('button', 'Modifier', 'ghost');
     edit.onclick = () => openDialog(c);
     const del = el('button', 'Supprimer', 'ghost danger');
-    del.onclick = async () => {
-        if (!confirm(`Supprimer « ${c.mission || c.employer} » et ses documents ?`)) return;
-        await api(`/api/contracts/${c.id}`, 'DELETE');
-        load();
-    };
+        del.onclick = () => deleteContract(c.id, `« ${c.mission || c.employer} »`);
     actions.append(edit, del);
     tr.append(actions);
     tr.classList.add('tappable');
@@ -382,16 +344,32 @@ function renderJobTitles() {
     }));
 }
 
+// Employeurs proposés à la saisie : les plus utilisés d'abord, puis les plus récents
+function employerSuggestions(list) {
+    const seen = new Map();
+    for (const c of list) {
+        const k = norm(c.employer);
+        const e = seen.get(k) || { name: c.employer, n: 0, last: '' };
+        e.n += 1;
+        if (c.end_date > e.last) e.last = c.end_date;
+        seen.set(k, e);
+    }
+    return [...seen.values()]
+        .sort((a, b) => b.n - a.n || (a.last < b.last ? 1 : -1))
+        .slice(0, 50)
+        .map((e) => e.name);
+}
+
 async function load() {
-    [contracts, employers] = await Promise.all([api('/api/contracts'), api('/api/employers')]);
+    const [list] = await Promise.all([
+        api('/api/contracts'), loadSummary(), loadLimits(), loadTrainings()]);
+    contracts = list;
+    employers = employerSuggestions(list);
     computeDuplicates();
     renderFilters();
     render();
     renderEmployers();
     renderJobTitles();
-    await loadSummary();
-    await loadLimits();
-    await loadTrainings();
 }
 
 /* ---------- Employeurs (saisie rapide) ---------- */
@@ -455,12 +433,16 @@ function openDialog(c) {
     dialog.showModal();
 }
 
+async function deleteContract(id, label) {
+    if (!confirm(`Supprimer ${label} et ses documents ?`)) return false;
+    await api(`/api/contracts/${id}`, 'DELETE');
+    load();
+    return true;
+}
+
 $('#contract-delete').onclick = async () => {
     const id = form.elements.id.value;
-    if (!id || !confirm('Supprimer ce contrat et ses documents ?')) return;
-    await api(`/api/contracts/${id}`, 'DELETE');
-    dialog.close();
-    load();
+    if (id && await deleteContract(id, 'ce contrat')) dialog.close();
 };
 
 const closeDialog = () => dialog.close();
@@ -473,13 +455,7 @@ form.addEventListener('input', () => {
     updateDaysHint();
 });
 
-// Fermeture au clic sur le fond : le clic doit commencer ET finir sur le fond
-let downOnBackdrop = false;
-dialog.addEventListener('mousedown', (e) => { downOnBackdrop = e.target === dialog; });
-dialog.addEventListener('click', (e) => {
-    if (e.target === dialog && downOnBackdrop) closeDialog();
-    downOnBackdrop = false;
-});
+bindDialog(dialog);
 
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -610,13 +586,7 @@ function openLimit(r) {
     limitDialog.showModal();
 }
 
-limitDialog.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => limitDialog.close(); });
-let limitDown = false;
-limitDialog.addEventListener('mousedown', (e) => { limitDown = e.target === limitDialog; });
-limitDialog.addEventListener('click', (e) => {
-    if (e.target === limitDialog && limitDown) limitDialog.close();
-    limitDown = false;
-});
+bindDialog(limitDialog);
 
 limitForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -666,17 +636,18 @@ $('#add-training').onclick = () => openTraining(null);
 /* ---------- Formations ---------- */
 const trainingDialog = $('#training-dialog');
 const trainingForm = $('#training-form');
-const TRAINING_CAP = 338;
+
 
 async function loadTrainings() {
-    renderTrainings((await api('/api/trainings')).trainings);
+    const d = await api('/api/trainings');
+    renderTrainings(d.trainings, d.cap);
 }
 
-function renderTrainings(list) {
+function renderTrainings(list, cap) {
     $('#trainings-card').hidden = list.length === 0;
     const eligible = list.filter((t) => !t.paid_by_are).reduce((a, t) => a + t.hours, 0);
     $('#trainings-sum').textContent =
-        `${nf1.format(Math.min(eligible, TRAINING_CAP))} / ${TRAINING_CAP} h retenues`;
+        `${nf1.format(Math.min(eligible, cap))} / ${cap} h retenues`;
     $('#trainings-list').replaceChildren(...list.map(trainingItem));
 }
 
@@ -709,13 +680,7 @@ function openTraining(t) {
     trainingDialog.showModal();
 }
 
-trainingDialog.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => trainingDialog.close(); });
-let trainingDown = false;
-trainingDialog.addEventListener('mousedown', (e) => { trainingDown = e.target === trainingDialog; });
-trainingDialog.addEventListener('click', (e) => {
-    if (e.target === trainingDialog && trainingDown) trainingDialog.close();
-    trainingDown = false;
-});
+bindDialog(trainingDialog);
 
 trainingForm.addEventListener('submit', async (e) => {
     e.preventDefault();

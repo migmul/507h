@@ -1,47 +1,18 @@
-const $ = (s) => document.querySelector(s);
-const csrf = document.querySelector('meta[name="csrf-token"]').content;
 const NS = 'http://www.w3.org/2000/svg';
 const COLORS = ['#ff5a36', '#4cc9f0', '#5ad19a', '#f5b942', '#b388ff', '#ff8fab', '#8bd3dd', '#9aa3b5'];
 const eur0 = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-const nf1 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
-const fh = (h) => (h == null ? '–' : `${nf1.format(h)} h`);
 const fmonth = (m, long) => new Date(m + '-01T00:00:00').toLocaleDateString(
     'fr-FR', long ? { month: 'long', year: 'numeric' } : { month: 'short', year: '2-digit' });
-const fdate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('fr-FR');
 let stats = null;
+let events = null;      // calendrier : chargé à la première ouverture
+
 let calYear = new Date().getFullYear();
-
-async function api(path, method = 'GET') {
-    const res = await fetch(path, { method, headers: { 'X-CSRF-Token': csrf } });
-    if (res.status === 401) {
-        location.href = '/login';
-        return;
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Erreur');
-    return data;
-}
-
-function el(tag, text, cls) {
-    const n = document.createElement(tag);
-    if (text !== undefined) n.textContent = text;
-    if (cls) n.className = cls;
-    return n;
-}
 
 function s(tag, attrs = {}, text) {
     const n = document.createElementNS(NS, tag);
     for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
     if (text !== undefined) n.textContent = text;
     return n;
-}
-
-function kv(ul, rows) {
-    ul.replaceChildren(...rows.map(([k, v]) => {
-        const li = document.createElement('li');
-        li.append(el('span', k, 'k'), el('strong', v));
-        return li;
-    }));
 }
 
 /* ---------- Infobulle ---------- */
@@ -208,7 +179,6 @@ function donut(box, parts, fmt) {
 }
 
 /* ---------- Calendrier ---------- */
-/* ---------- Calendrier ---------- */
 const iso = (d) => d.toISOString().slice(0, 10);
 
 function eachDay(a, b, fn) {
@@ -228,26 +198,24 @@ const MARK_LABEL = {
 };
 
 let calMonth = new Date().getMonth();
-const isMobileCal = () => window.matchMedia('(max-width: 700px)').matches;
-
 // Contrats, virements et repères des droits entre deux dates (incluses)
 function buildDays(from, to) {
     const days = {};
     const get = (d) => (days[d] ||= { contracts: [], marks: new Set(), notes: [] });
-    const ev = stats.events;
-    for (const c of ev.contracts) {
+    
+    for (const c of events.contracts) {
         if (c.e < from || c.s > to) continue;
         const label = `${c.emp}${c.mission ? ' – ' + c.mission : ''} (${Math.round(c.h * 10) / 10} h)`;
         eachDay(c.s < from ? from : c.s, c.e > to ? to : c.e, (d) => get(d).contracts.push(label));
     }
-    for (const p of ev.payments) {
+    for (const p of events.payments) {
         if (p.d >= from && p.d <= to) {
             const g = get(p.d);
             g.marks.add('pay');
             g.notes.push(`Virement France Travail : ${eur0.format(p.a)} (${fmonth(p.m, true)})`);
         }
     }
-    for (const r of ev.rights) {
+    for (const r of events.rights) {
         if (r.d >= from && r.d <= to) {
             const g = get(r.d);
             g.marks.add(r.kind);
@@ -290,7 +258,7 @@ function renderCalendar() {
     const grid = $('#cal');
     const todayIso = iso(new Date(Date.now() - new Date().getTimezoneOffset() * 60000));
 
-    if (isMobileCal()) {
+    if (isMobile()) {
         // Mobile : un seul mois, grille de sept colonnes (lundi en premier)
         const first = new Date(Date.UTC(calYear, calMonth, 1));
         const len = new Date(Date.UTC(calYear, calMonth + 1, 0)).getUTCDate();
@@ -333,8 +301,13 @@ function renderCalendar() {
     grid.replaceChildren(...cells);
 }
 
+async function showCalendar() {
+    if (!events) events = await api('/api/calendar');
+    renderCalendar();
+}
+
 function shiftCalendar(step) {
-    if (isMobileCal()) {
+    if (isMobile()) {
         calMonth += step;
         if (calMonth < 0) {
             calMonth = 11;
@@ -434,7 +407,7 @@ function render() {
     });
 
     renderDonuts();
-    if ($('#cal-details').open) renderCalendar();    // calculé seulement s'il est déplié
+    if ($('#cal-details').open) showCalendar(); // chargé et calculé seulement s'il est déplié
 }
 
 function renderDonut(boxSel, modeSel, list) {
@@ -473,7 +446,7 @@ $('#jobs-mode').onchange = renderDonuts;
 $('#cal-prev').onclick = () => shiftCalendar(-1);
 $('#cal-next').onclick = () => shiftCalendar(1);
 $('#cal-details').addEventListener('toggle', () => {
-    if ($('#cal-details').open) renderCalendar();
+    if ($('#cal-details').open) showCalendar();
 });
 
 let lastWidth = window.innerWidth;
