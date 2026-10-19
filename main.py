@@ -41,7 +41,7 @@ from werkzeug.utils import secure_filename
 # Configuration
 # ===========================================================================
 
-APP_VERSION = "0.23"
+APP_VERSION = "0.23.1"
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
 INSTANCE = BASE / "instance"

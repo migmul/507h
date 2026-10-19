@@ -303,14 +303,15 @@ function render() {
 function forecastText(s) {
     const f = s.forecast;
     if (!f || s.hours >= s.target) return '';
-    let text = `Avec tes contrats prévus jusqu'au ${fdate(f.horizon)} (+${nf1.format(f.planned)} h) : `;
-    text += f.reach_date
-        ? `seuil des ${s.target} h atteint le ${fdate(f.reach_date)}`
-        : `${nf1.format(f.projected)} h, il en manquerait encore ${nf1.format(Math.max(0, s.target - f.projected))} h`;
     // heures anciennes qui sortent de la fenêtre de 12 mois avant la fin des contrats prévus
     const expired = s.hours + f.planned - f.projected;
-    if (expired > 0.5) text += ` (${nf1.format(expired)} h ne comptent plus d'ici là)`;
-    return text + '.';
+    let text = `Avec ${nf1.format(f.planned)} h de contrats prévus jusqu'au ${fdate(f.horizon)}`;
+    if (expired > 0.5) text += ` et ${nf1.format(expired)} h qui sortent des 12 mois`;
+    text += ' : ';
+    text += f.reach_date
+        ? `seuil des ${s.target} h atteint le ${fdate(f.reach_date)}.`
+        : `${nf1.format(f.projected)} h, il te manquerait ${nf1.format(Math.max(0, s.target - f.projected))} h.`;
+    return text;
 }
 
 async function loadSummary() {
@@ -324,25 +325,21 @@ async function loadSummary() {
     bar.style.width = Math.min(100, (reached / s.target) * 100) + '%';
     bar.style.setProperty('--done', (reached > 0 ? (s.hours / reached) * 100 : 100) + '%');
 
+    // Première ligne : « 270 / 507 h, il te manque 237 h (20/10/2025 au 19/10/2026) »
+    // Avec un droit, la période va jusqu'à la date anniversaire (l'échéance), sinon jusqu'à aujourd'hui.
+    const deadline = s.mode === 'since_fct' && s.anniversary_date && s.anniversary_date >= s.window_end
+        ? s.anniversary_date : s.window_end;
+    const left = Math.max(0, s.target - s.hours);
     $('#hours').textContent = nf1.format(s.hours);
-    $('#range').textContent = ` (du ${fdate(s.window_start)} au ${fdate(s.window_end)})`;
+    $('#remaining').textContent = left > 0
+        ? ` / ${s.target} h, il te manque ${nf1.format(left)} h`
+        : ` / ${s.target} h, seuil atteint`;
+    $('#range').textContent = `(${fdate(s.window_start)} au ${fdate(deadline)})`;
+
     $('#progress-sum').textContent = `${nf1.format(s.hours)} / ${s.target} h · ${pct} %` +
-        (f && s.hours < s.target ? ` · +${nf1.format(f.planned)} h prévues` : '');
+        (f && left > 0 ? ` · +${nf1.format(f.planned)} h prévues` : '');
     $('#pct').textContent = `${pct} %`;
     $('#pct').classList.toggle('done', pct >= 100);
-
-    const left = Math.max(0, s.target - s.hours);
-    let until = '';
-    if (s.mode === 'since_fct') {
-        if (s.anniversary_date && s.anniversary_date >= s.window_end) {
-            until = ` avant le ${fdate(s.anniversary_date)}`;
-        }
-    } else {
-        until = ' sur les 12 derniers mois';
-    }
-    $('#remaining').textContent = left > 0
-        ? `Il te manque ${nf1.format(left)} h${until}`
-        : 'Seuil des 507 h atteint';
 
     const forecast = $('#forecast');
     forecast.textContent = forecastText(s);

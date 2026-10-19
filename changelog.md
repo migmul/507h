@@ -3,6 +3,15 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.23.1] - 2026-10-19
+
+### Modifié
+- Carte « Ma progression » condensée : la première ligne réunit les heures, ce qu'il manque et la période (« 270 / 507 h, il te manque 237 h (20/10/2025 au 19/10/2026) »). Avec un droit en cours, la période va jusqu'à la date anniversaire, qui remplace l'ancienne mention « avant le jj/mm/aaaa ».
+- Ligne du prévisionnel raccourcie et reformulée : « Avec 144 h de contrats prévus jusqu'au 11/12/2026 et 32 h qui sortent des 12 mois : 382 h, il te manquerait 125 h. » Quand les contrats prévus suffisent : « … : seuil des 507 h atteint le jj/mm/aaaa. »
+- Le détail des heures qui sortent de la fenêtre de 12 mois est intégré à cette phrase au lieu d'une parenthèse finale.
+- La ligne de formation (« Dont n h de formation ») reste distincte et n'apparaît que lorsqu'il y en a.
+- Quand le seuil est déjà atteint, la première ligne indique « seuil atteint » ; le résumé de la carte repliée n'ajoute les heures prévues que s'il reste des heures à acquérir.
+
 ## [0.23] - 2026-10-19
 
 ### Ajouté
