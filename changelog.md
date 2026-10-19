@@ -3,6 +3,19 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.23] - 2026-10-19
+
+### Ajouté
+- Prévisionnel des 507 h pour les utilisateurs sans droit en cours (ou avec un droit) qui ont des contrats à venir : la carte « Ma progression » du tableau de bord affiche désormais les heures prévues en plus des heures effectuées. La barre montre les heures effectuées (couleur pleine) puis les heures prévues (couleur claire).
+- Nouvelle ligne sous la barre : « Avec tes contrats prévus jusqu'au jj/mm/aaaa (+n h) : … » avec soit la date à laquelle le seuil des 507 h est atteint, soit le nombre d'heures qui manqueraient encore. Si des heures anciennes sortent de la fenêtre de 12 mois avant la fin des contrats prévus, elles sont signalées.
+- Le résumé de la carte repliée indique les heures prévues (« 360 / 507 h · 71 % · +48 h prévues »).
+- Calcul de la date de franchissement du seuil : test à la fin de chaque contrat à venir, sur les 12 mois qui précèdent (ou depuis la fin de contrat retenue du droit en cours, dans la limite de sa date anniversaire).
+- La réponse de `/api/summary` contient un bloc `forecast` (horizon, heures prévues, heures projetées, date de franchissement) ; il vaut `null` quand aucun contrat n'est prévu.
+- Page Intermittence : sans droit renseigné, un lien renvoie vers la progression, contrats prévus compris.
+
+### Modifié
+- Le barre de progression du tableau de bord utilise le même dégradé à deux teintes que les plafonds annuels.
+
 ## [0.22.2] - 2026-10-08
 
 ### Vérifié

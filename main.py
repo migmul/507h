@@ -41,7 +41,7 @@ from werkzeug.utils import secure_filename
 # Configuration
 # ===========================================================================
 
-APP_VERSION = "0.22.2"
+APP_VERSION = "0.23"
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
 INSTANCE = BASE / "instance"
@@ -1585,26 +1585,66 @@ def build_overview(db, uid):
             "can_request_early": done["hours"] >= HOURS_TARGET and days_left > 0},
     }
 
+def build_forecast(db, uid, today, floor, ceil, done_hours):
+    """Prévisionnel : heures des contrats à venir et premier jour où les 507 h sont atteintes.
+
+    floor : début de la fenêtre de comptage quand un droit existe (lendemain de la FCT), sinon None.
+    ceil  : dernier jour pris en compte (date anniversaire du droit), sinon None.
+    Retourne None s'il n'y a aucun contrat à venir.
+    """
+    last = db.execute("SELECT MAX(end_date) FROM contracts WHERE user_id=? AND end_date > ?",
+                      (uid, today.isoformat())).fetchone()[0]
+    if not last:
+        return None
+    horizon = date.fromisoformat(last)
+    if ceil is not None:
+        horizon = min(horizon, ceil)
+    if horizon <= today:
+        return None
+
+    def window(day):        # les 507 h se comptent sur les 12 mois qui précèdent la fin de contrat
+        start = day - timedelta(days=364)
+        return max(start, floor) if floor else start
+
+    planned = period_totals(db, uid, today + timedelta(days=1), horizon)["hours"]
+    projected = period_totals(db, uid, window(horizon), horizon)["hours"]
+    reach = None
+    if done_hours < HOURS_TARGET:
+        # le seuil ne peut être franchi qu'à la fin d'un contrat : on teste chacune de ces dates
+        for (end,) in db.execute(
+                "SELECT DISTINCT end_date FROM contracts"
+                " WHERE user_id=? AND end_date > ? AND end_date <= ? ORDER BY end_date LIMIT 60",
+                (uid, today.isoformat(), horizon.isoformat())):
+            day = date.fromisoformat(end)
+            if period_totals(db, uid, window(day), day)["hours"] >= HOURS_TARGET:
+                reach = day
+                break
+        if reach is None and projected >= HOURS_TARGET:
+            reach = horizon
+    return {"horizon": horizon.isoformat(), "planned": planned, "projected": projected,
+            "reach_date": reach.isoformat() if reach else None}
 
 @app.get("/api/summary")
 @login_required
 def summary():
     db, uid = get_db(), session["uid"]
     today = date.today()
-    start, mode = today - timedelta(days=364), "rolling"
+    start, mode, ceil = today - timedelta(days=364), "rolling", None
     fct_date = da_iso = None
     r = current_right(db, uid)
     if r:
         fct, _, da = right_dates(r)
         fct_date, da_iso = fct.isoformat(), da.isoformat()
         if fct + timedelta(days=1) > start:
-            start, mode = fct + timedelta(days=1), "since_fct"
+            start, mode, ceil = fct + timedelta(days=1), "since_fct", da
     t = period_totals(db, uid, start, today)
+    forecast = build_forecast(db, uid, today, start if mode == "since_fct" else None, ceil, t["hours"])
     return jsonify(hours=t["hours"], target=HOURS_TARGET,
                    training_hours=t["training_hours"],
                    window_start=start.isoformat(), window_end=today.isoformat(),
                    mode=mode, fct_date=fct_date, anniversary_date=da_iso,
-                   annexe=user_annexe(db, uid), default_annexe=default_annexe(db, uid))
+                   annexe=user_annexe(db, uid), default_annexe=default_annexe(db, uid),
+                   forecast=forecast)
 
 
 def parse_rights(d):

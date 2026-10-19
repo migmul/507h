@@ -299,15 +299,38 @@ function render() {
 }
 
 /* ---------- Progression ---------- */
+// Ligne « prévisionnel » : effet des contrats à venir sur les 507 h
+function forecastText(s) {
+    const f = s.forecast;
+    if (!f || s.hours >= s.target) return '';
+    let text = `Avec tes contrats prévus jusqu'au ${fdate(f.horizon)} (+${nf1.format(f.planned)} h) : `;
+    text += f.reach_date
+        ? `seuil des ${s.target} h atteint le ${fdate(f.reach_date)}`
+        : `${nf1.format(f.projected)} h, il en manquerait encore ${nf1.format(Math.max(0, s.target - f.projected))} h`;
+    // heures anciennes qui sortent de la fenêtre de 12 mois avant la fin des contrats prévus
+    const expired = s.hours + f.planned - f.projected;
+    if (expired > 0.5) text += ` (${nf1.format(expired)} h ne comptent plus d'ici là)`;
+    return text + '.';
+}
+
 async function loadSummary() {
     const s = await api('/api/summary');
-    $('#bar').style.width = Math.min(100, (s.hours / s.target) * 100) + '%';
+    const f = s.forecast;
+    const pct = Math.round((s.hours / s.target) * 100);
+
+    // Barre : heures effectuées (pleines), puis heures prévues (plus claires)
+    const reached = f ? Math.max(s.hours, f.projected) : s.hours;
+    const bar = $('#bar');
+    bar.style.width = Math.min(100, (reached / s.target) * 100) + '%';
+    bar.style.setProperty('--done', (reached > 0 ? (s.hours / reached) * 100 : 100) + '%');
+
     $('#hours').textContent = nf1.format(s.hours);
     $('#range').textContent = ` (du ${fdate(s.window_start)} au ${fdate(s.window_end)})`;
-    const pct = Math.round((s.hours / s.target) * 100);
-    $('#progress-sum').textContent = `${nf1.format(s.hours)} / ${s.target} h · ${pct} %`;
+    $('#progress-sum').textContent = `${nf1.format(s.hours)} / ${s.target} h · ${pct} %` +
+        (f && s.hours < s.target ? ` · +${nf1.format(f.planned)} h prévues` : '');
     $('#pct').textContent = `${pct} %`;
     $('#pct').classList.toggle('done', pct >= 100);
+
     const left = Math.max(0, s.target - s.hours);
     let until = '';
     if (s.mode === 'since_fct') {
@@ -320,7 +343,12 @@ async function loadSummary() {
     $('#remaining').textContent = left > 0
         ? `Il te manque ${nf1.format(left)} h${until}`
         : 'Seuil des 507 h atteint';
-        defaultAnnexe = s.default_annexe;
+
+    const forecast = $('#forecast');
+    forecast.textContent = forecastText(s);
+    forecast.hidden = !forecast.textContent;
+
+    defaultAnnexe = s.default_annexe;
     const eq = $('#cachets-eq');
     eq.hidden = s.annexe !== 10;
     if (s.annexe === 10) {
