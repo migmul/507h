@@ -17,6 +17,9 @@ import threading
 import time
 import unicodedata
 import zipfile
+import subprocess
+import sys
+from aem import filename_hint, match_contracts
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
@@ -41,7 +44,7 @@ from werkzeug.utils import secure_filename
 # Configuration
 # ===========================================================================
 
-APP_VERSION = "0.23.1"
+APP_VERSION = "0.24"
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
 INSTANCE = BASE / "instance"
@@ -1235,6 +1238,25 @@ def delete_account():
 # Contrats et documents
 # ===========================================================================
 
+SAFE_ENV = ("PATH", "HOME", "LANG", "TMPDIR", "TMP", "TEMP", "SYSTEMROOT", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__")
+PDF_HEADER_WINDOW = 1024        # la spécification admet des octets avant « %PDF- » dans les 1 024 premiers
+
+
+def aem_env():
+    """Environnement du sous-processus : ce dont Python a besoin, jamais les secrets (clés, mot de passe SMTP)."""
+    env = {k: v for k, v in os.environ.items() if k in SAFE_ENV or k.startswith(("LC_", "PYTHON"))}
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
+
+
+def clean_pdf(data):
+    """Le PDF à partir de son en-tête (octets parasites retirés), ou None si ce n'est pas un PDF."""
+    start = data.find(b"%PDF-", 0, PDF_HEADER_WINDOW)
+    if start < 0:
+        app.logger.warning("Fichier refusé : en-tête PDF introuvable (début du fichier : %r)", data[:16])
+        return None
+    return data[start:]
+
 def to_cents(v):
     if v is None or str(v).strip() == "":
         return None
@@ -1342,6 +1364,39 @@ def remove_files(uid, stored_names):
         except FileNotFoundError:
             pass
 
+AEM_TIMEOUT = 20        # secondes
+
+def parse_aem_isolated(data, filename):
+    """Lit l'AEM dans un sous-processus : un PDF est un fichier non fiable."""
+    try:
+        proc = subprocess.run([sys.executable, str(BASE / "aem.py")], input=data, capture_output=True,
+                              timeout=AEM_TIMEOUT, cwd=BASE, env=aem_env())
+    except subprocess.TimeoutExpired:
+        raise ValueError("La lecture de ce PDF prend trop de temps.")
+    try:
+        aem = json.loads(proc.stdout) if proc.returncode == 0 and len(proc.stdout) <= 20000 else None
+    except ValueError:
+        aem = None
+    if aem is None or "error" in aem:
+        # la cause réelle (bibliothèque absente, PDF corrompu…) va dans les journaux du serveur
+        app.logger.warning("Lecture d'AEM impossible (code %s) : %s", proc.returncode,
+                           proc.stderr.decode("utf-8", "replace")[-500:].strip())
+    if aem is None:
+        raise ValueError("Ce PDF est illisible.")
+    if "error" in aem:
+        raise ValueError(aem["error"])
+    hint = filename_hint(filename)      # nom de fichier France Télévisions : secours pour le n° de contrat
+    if not aem.get("contract_number") and hint.get("contract_number"):
+        aem["contract_number"] = hint["contract_number"]
+    return aem
+
+def contracts_for_matching(db, uid):
+    rows = db.execute(
+        "SELECT c.id, c.employer, c.mission, c.comment, c.start_date, c.end_date, c.hours,"
+        " c.gross_cents, c.days_worked, c.cachets, c.annexe,"
+        " (SELECT COUNT(*) FROM documents d WHERE d.contract_id = c.id AND d.kind = 'aem') AS aem_docs"
+        " FROM contracts c WHERE c.user_id = ?", (uid,)).fetchall()
+    return [dict(r, gross=cents(r["gross_cents"])) for r in rows]
 
 @app.get("/api/contracts")
 @login_required
@@ -1421,7 +1476,8 @@ def upload_document(cid):
     data = f.read(MAX_PDF + 1)
     if len(data) > MAX_PDF:
         return err("Fichier trop volumineux (10 Mo max)", 413)
-    if not data.startswith(b"%PDF-"):
+    data = clean_pdf(data)
+    if data is None:
         return err("Le fichier n'est pas un PDF valide")
     name = secure_filename(f.filename or "") or "document.pdf"
     if not name.lower().endswith(".pdf"):
@@ -1464,6 +1520,34 @@ def delete_document(did):
     db.commit()
     remove_files(uid, [r["stored_name"]])
     return jsonify(ok=True)
+
+
+@app.post("/api/aem/analyze")
+@login_required
+def analyze_aem():
+    uid = session["uid"]
+    f = request.files.get("file")
+    if not f:
+        return err("Aucun fichier")
+    data = f.read(MAX_PDF + 1)
+    if len(data) > MAX_PDF:
+        return err("Fichier trop volumineux (10 Mo max)", 413)
+    data = clean_pdf(data)
+    if data is None:
+        return err("Le fichier n'est pas un PDF valide")
+    if hit(f"aem|{uid}", 30):
+        return err("Trop d'analyses, réessaie dans 15 minutes", 429)
+    try:
+        aem = parse_aem_isolated(data, f.filename)
+    except ValueError as e:
+        return err(str(e), 422)
+    db = get_db()
+    known = db.execute("SELECT contract_id FROM documents WHERE user_id=? AND sha256=?",
+                       (uid, hashlib.sha256(data).hexdigest())).fetchone()
+    if known:
+        return jsonify(aem=aem, matches=[], already_attached=known["contract_id"])
+    return jsonify(aem=aem, matches=match_contracts(aem, contracts_for_matching(db, uid)),
+                   already_attached=None)
 
 # ===========================================================================
 # Droits ARE, virements et progression

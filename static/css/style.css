@@ -1228,6 +1228,41 @@ details[open] > summary .fold-sum {
     font-variant-numeric: tabular-nums;
 }
 
+/* Choix d'un contrat (import d'AEM) */
+.choice {
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+    margin: 0 0 .5rem;
+    padding: .7rem .75rem;
+    font-size: inherit;
+    font-weight: 400;
+    color: var(--text);
+    background: var(--surface-2);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.choice input {
+    width: auto;
+    margin: .25rem 0 0;
+}
+
+.choice > div {
+    flex: 1;
+    min-width: 0;
+}
+
+.tag.ok {
+    color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.dialog-body h3 {
+    margin: 1rem 0 .5rem;
+    font-size: .95rem;
+}
+
 /* ==========================================================================
    10. Modales
    ========================================================================== */

@@ -62,6 +62,7 @@
                 </button>
                 <div class="menu" id="add-menu" role="menu" hidden>
                     <button type="button" role="menuitem" id="add-training">Ajouter une formation</button>
+                    <button type="button" role="menuitem" id="import-aem">Importer une AEM (PDF)</button>
                 </div>
             </div>
         </div>
@@ -208,6 +209,39 @@
             <button class="ghost danger push" type="button" id="training-delete" hidden>Supprimer</button>
         </div>
     </form>
+</dialog>
+
+<!-- MODALE - IMPORT PDF -->
+
+<input type="file" id="aem-file" accept="application/pdf,.pdf" hidden>
+
+<dialog id="aem-dialog">
+    <div class="dialog-body">
+        <div class="card-head">
+            <h2>Importer une AEM</h2>
+            <button type="button" class="ghost" data-close aria-label="Fermer">✕</button>
+        </div>
+        <p class="muted" id="aem-info" hidden></p>
+        <div id="aem-body" hidden>
+            <ul class="kv" id="aem-summary"></ul>
+            <p class="alert warn" id="aem-warnings" hidden></p>
+            <div id="aem-matches" hidden>
+                <h3>Rattacher à un contrat</h3>
+                <div id="aem-match-list"></div>
+                <div id="aem-fill" hidden>
+                    <p class="muted small">Renseigner aussi dans le contrat :</p>
+                    <div id="aem-fill-list"></div>
+                </div>
+                <p class="alert warn" id="aem-notes" hidden></p>
+            </div>
+            <p class="muted" id="aem-none" hidden>Aucun contrat de l'application ne correspond à cette AEM. Ajoute d'abord le contrat, puis réimporte l'AEM.</p>
+        </div>
+        <p class="error" id="aem-error" role="alert"></p>
+        <div class="row">
+            <button class="primary inline" id="aem-attach" type="button" disabled>Rattacher l'AEM</button>
+            <button class="ghost" type="button" data-close>Annuler</button>
+        </div>
+    </div>
 </dialog>
 
 {% endblock %}

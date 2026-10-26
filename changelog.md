@@ -3,6 +3,21 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.24] - 2026-10-26
+
+### Ajouté
+- Import d'une AEM (PDF) depuis le menu du bouton d'ajout de la page Contrats (« Importer une AEM (PDF) ») : le document est lu, puis rattaché au contrat correspondant.
+- Lecture du formulaire AEM (DAJ 110) par `aem.py` : employeur, n° de contrat (en-tête France Télévisions), mois, type d'attestation, emploi, annexe (déduite de la catégorie cochée), dates du contrat, heures, cachets, jours travaillés et salaire brut. Les données personnelles du formulaire (identité, NIR, adresse, date de naissance) ne sont jamais lues.
+- Rattachement automatique au contrat existant : le n° de contrat retrouvé dans le commentaire ou la mission, l'employeur, les dates, les heures et le brut donnent un niveau de confiance (certain, probable, possible). Le meilleur candidat est présélectionné seulement s'il se détache nettement ; sinon l'utilisateur choisit.
+- Valeurs proposées en complément pour les champs vides du contrat (brut, jours travaillés, cachets), cochées par défaut et décochables. Les écarts (heures, brut, dates) sont signalés sans rien écraser.
+- Un contrat qui s'étend sur plusieurs mois n'est pas comparé sur les heures et le brut, car l'AEM ne couvre que le mois concerné.
+- Un PDF déjà joint à un contrat est reconnu par son empreinte et n'est pas rattaché une seconde fois.
+- Lecture du PDF isolée dans un sous-processus (20 s maximum, 10 s de processeur, 1 Gio de mémoire, environnement vide de tout secret), limitée à 30 analyses par 15 minutes et par compte.
+- Dépendance `pdfplumber`.
+
+### Modifié
+- Le `Dockerfile` copie aussi `aem.py`.
+
 ## [0.23.1] - 2026-10-19
 
 ### Modifié
