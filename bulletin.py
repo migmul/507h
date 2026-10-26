@@ -5,6 +5,8 @@ Deux usages, comme aem.py :
 - lancé comme script (`python bulletin.py < fichier.pdf`) : lit un PDF sur l'entrée standard et écrit un JSON sur la
   sortie standard, dans un sous-processus à durée et mémoire limitées.
 
+Un bulletin peut tenir sur plusieurs pages : l'en-tête est répété sur chacune, les éléments de salaire sont sur la
+première et le net à payer peut se trouver sur la dernière. Les pages sont donc lues ensemble (aem.read_words).
 Le rattachement à un contrat réutilise `match_contracts` d'aem.py. Il y a un bulletin par contrat : il couvre
 le contrat entier, heures et montants compris.
 
@@ -44,7 +46,7 @@ def _find_line(lines, phrase):
 
 
 def parse_words(words):
-    """Extrait les champs utiles d'un bulletin de paie à partir des mots (avec coordonnées) de sa première page."""
+    """Extrait les champs utiles d'un bulletin de paie à partir des mots (avec coordonnées) de toutes ses pages."""
     lines = _lines(words)
     text = " ".join(_text(line) for line in lines)
     if "attestation" in text and "annexes 8 et 10" in text:
@@ -63,11 +65,12 @@ def parse_words(words):
         out["start_date"] = _date(list(m.group(3, 4, 5)))
         out["end_date"] = _date(list(m.group(6, 7, 8)))
 
-    # Date de paiement
-    line = _find_line(lines, "paiement effectue le")
-    if line:
+    # Date de paiement : la première ligne « paiement effectué le » qui porte une date (souvent sur la dernière page)
+    for line in lines:
         m = re.search(r"paiement effectue le\s+(\d{2})/(\d{2})/(\d{4})", _text(line))
-        out["pay_date"] = _date(list(m.groups())) if m else None
+        if m:
+            out["pay_date"] = _date(list(m.groups()))
+            break
 
     # Employeur : à gauche de « APE » dans l'en-tête
     ape = next((w for w in words if w["text"] == "APE"), None)
@@ -76,7 +79,8 @@ def parse_words(words):
         name = [w["text"] for w in row if w["x1"] < ape["x0"] - 2]
         out["employer"] = " ".join(name) or None
 
-    # Emploi : « FONCTION/EMPLOI:74309   MONTEUR » ; le n° de contrat est dans le coin droit, juste en dessous
+    # Emploi : « FONCTION/EMPLOI:74309   MONTEUR » ; le n° de contrat est dans le coin droit, juste en dessous,
+    # à droite du matricule (8 chiffres)
     for i, line in enumerate(lines):
         if line[0]["text"].upper().startswith("FONCTION/EMPLOI"):
             job = [w["text"] for w in line[1:] if w["x0"] < 400]

@@ -3,6 +3,15 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.27.2] - 2026-10-26
+
+### Corrigé
+- Les bulletins de paie sur plusieurs pages sont maintenant lus : les pages sont analysées ensemble (jusqu'à 4), car le net à payer avant impôt, la date de paiement et les plages de travail se trouvent souvent sur la dernière page, alors que les éléments de salaire sont sur la première. Avant, seule la première page était lue et le bulletin était refusé comme « ne ressemblant pas à un bulletin de paie ».
+- Le n° de contrat d'un bulletin est lu à droite du matricule, y compris quand le matricule figure sur la même ligne.
+
+### Modifié
+- La lecture d'une AEM reste limitée à sa première page.
+
 ## [0.27.1] - 2026-10-26
 
 ### Ajouté

@@ -18,7 +18,7 @@ import sys
 import unicodedata
 from datetime import date
 
-MAX_PAGES = 3
+MAX_PAGES = 4
 MAX_PDF = 10 * 1024 * 1024
 CATEGORY_LABELS = ("Cadre", "Réalisateur", "Artiste", "Technicien", "Ouvrier")
 TYPE_LABELS = {"INITIALE": "initiale", "COMPLÉMENTAIRE": "complémentaire", "RECTIFICATIVE": "rectificative"}
@@ -92,6 +92,7 @@ def resolve_contract_number(doc, wanted):
 
 def parse_words(words):
     """Extrait les champs utiles d'une AEM à partir des mots (avec coordonnées) de sa première page."""
+    words = [w for w in words if w.get("page", 0) == 0]        # une AEM tient sur la première page
     text = fold(" ".join(w["text"] for w in words))
     if "bulletin de paie" in text:
         raise ValueError("Ce PDF est un bulletin de paie : utilise « Importer un bulletin de paie ».")
@@ -197,7 +198,12 @@ def read_words(data):
             raise ValueError("Ce PDF est vide.")
         if len(pdf.pages) > MAX_PAGES:
             raise ValueError("Ce PDF a trop de pages pour être un document de ce type.")
-        return pdf.pages[0].extract_words(x_tolerance=2, y_tolerance=2)
+        words, offset = [], 0.0
+        for number, page in enumerate(pdf.pages):
+            for w in page.extract_words(x_tolerance=2, y_tolerance=2):
+                words.append({**w, "page": number, "top": w["top"] + offset, "bottom": w["bottom"] + offset})
+            offset += float(page.height) + 50       # pages empilées : les lignes de deux pages ne se mélangent pas
+        return words
 
 
 def filename_hint(name):
