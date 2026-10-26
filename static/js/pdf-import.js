@@ -6,7 +6,7 @@ const DOCS = {
     bulletin: { title: 'Importer un bulletin de paie', the: 'le bulletin', tag: 'Bulletin', field: 'Bulletin de paie',
                 already: 'un bulletin de paie joint' },
 };
-const FILL_LABELS = { gross: 'Brut', net: 'Net avant impôt', days_worked: 'Jours travaillés', cachets: 'Cachets' };
+const FIELD_WORDS = { gross: 'le brut', net: 'le net avant impôt', hours: 'les heures', days_worked: 'les jours travaillés', cachets: 'les cachets' };
 const LEVEL_LABEL = { certain: 'Certain', probable: 'Probable', possible: 'Possible' };
 const MAX_IMPORT = 40;              // PDF par import
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
@@ -26,6 +26,13 @@ function contractPayload(c) {
         gross: c.gross ?? '', net: c.net ?? '', comment: c.comment,
     };
 }
+
+const fmtValue = (field, v) => (field === 'gross' || field === 'net' ? money(v)
+    : field === 'hours' ? fh(v) : nf1.format(v));
+// Valeurs du PDF qui diffèrent de celles du contrat : « le net avant impôt 600,00 € → 607,75 € »
+const diffText = (m) => Object.entries(m.diff)
+    .map(([f, d]) => `${FIELD_WORDS[f]} ${fmtValue(f, d.app)} → ${fmtValue(f, d.pdf)}`).join(' · ');
+const diffValues = (m) => Object.fromEntries(Object.entries(m.diff).map(([f, d]) => [f, d.pdf]));
 
 const docPeriod = (a) => (!a.end_date || a.end_date === a.start_date
     ? fdate(a.start_date) : `${fdate(a.start_date)} → ${fdate(a.end_date)}`);
@@ -69,7 +76,7 @@ let aemFile = null;
 let aemData = null;          // résultat de l'analyse, pour créer un contrat
 let aemUploaded = false;     // le PDF est déjà joint : un nouvel essai ne le renvoie pas
 let aemChoices = [];         // [{ match, radio }]
-let aemFills = [];           // [{ field, value, box }]
+let aemFills = [];           // [{ field, value, text, box }]
 
 function aemRows(a) {
     const rows = [
@@ -83,17 +90,24 @@ function aemRows(a) {
     return rows;
 }
 
-// Notes affichées sous la liste pour le contrat sélectionné + valeurs proposées en complément
+// Notes affichées sous la liste pour le contrat sélectionné + valeurs proposées en complément ou en remplacement
 function selectAemMatch(m) {
-    aemFills = Object.entries(m.fill).map(([field, value]) => {
+    // valeurs vides du contrat : proposées, cochées ; valeurs différentes : à remplacer, décochées par prudence
+    aemFills = [
+        ...Object.entries(m.fill).map(([field, value]) => ({
+            field, value, checked: true, text: `Renseigner ${FIELD_WORDS[field]} : ${fmtValue(field, value)}` })),
+        ...Object.entries(m.diff).map(([field, d]) => ({
+            field, value: d.pdf, checked: false,
+            text: `Remplacer ${FIELD_WORDS[field]} : ${fmtValue(field, d.app)} → ${fmtValue(field, d.pdf)}` })),
+    ].map((f) => {
         const box = document.createElement('input');
         box.type = 'checkbox';
-        box.checked = true;
-        return { field, value, box };
+        box.checked = f.checked;
+        return { ...f, box };
     });
-    $('#aem-fill-list').replaceChildren(...aemFills.map(({ field, value, box }) => {
+    $('#aem-fill-list').replaceChildren(...aemFills.map(({ text, box }) => {
         const label = el('label', undefined, 'check');
-        label.append(box, `${FILL_LABELS[field]} : ${field === 'gross' || field === 'net' ? money(value) : nf1.format(value)}`);
+        label.append(box, text);
         return label;
     }));
     $('#aem-fill').hidden = !aemFills.length;
@@ -203,7 +217,7 @@ $('#aem-attach').onclick = async () => {
         load();
     } catch (ex) {
         $('#aem-error').textContent = aemUploaded
-            ? `PDF joint, mais les valeurs n'ont pas pu être renseignées : ${ex.message}`
+            ? `PDF joint, mais les valeurs n'ont pas pu être mises à jour : ${ex.message}`
             : ex.message;
         $('#aem-attach').disabled = false;
         load();
@@ -252,7 +266,7 @@ $('#aem-create').onclick = createFromAem;
 /* ---------- Plusieurs PDF : tableau ---------- */
 const bulkDialog = $('#bulk-dialog');
 bindDialog(bulkDialog);
-let bulkRows = [];           // un objet par fichier : { file, state, doc, matches, choice, message, target, tr }
+let bulkRows = [];           // un objet par fichier : { file, state, doc, matches, choice, replace, message, target, tr }
 let bulkCreated = new Map(); // clé du contrat → id du contrat créé pendant cet import (évite les doublons au nouvel essai)
 let bulkBusy = false;
 
@@ -295,6 +309,13 @@ function rowStatus(row) {
     }
 }
 
+// Le niveau de confiance vient en premier : le sélecteur est souvent plus étroit que son libellé
+const matchLabel = (m) => `${LEVEL_LABEL[m.level]} · ${m.employer}${m.mission ? ` – ${m.mission}` : ''}`
+    + ` · ${fdate(m.start_date)} → ${fdate(m.end_date)}`;
+
+const choiceLabel = (row) => (row.choice === '' ? '— Ne pas importer —'
+    : row.choice === 'new' ? '＋ Créer un contrat' : matchLabel(selectedMatch(row)));
+
 function contractOptions(row) {
     const option = (value, text) => {
         const o = document.createElement('option');
@@ -304,8 +325,7 @@ function contractOptions(row) {
     };
     return [
         option('', '— Ne pas importer —'),
-        ...row.matches.map((m) => option(String(m.id),
-            `${m.employer}${m.mission ? ` – ${m.mission}` : ''} · ${fdate(m.start_date)} → ${fdate(m.end_date)} · ${LEVEL_LABEL[m.level]}`)),
+        ...row.matches.map((m) => option(String(m.id), matchLabel(m))),
         option('new', '＋ Créer un contrat'),
     ];
 }
@@ -334,8 +354,10 @@ function renderRow(row) {
         select.replaceChildren(...contractOptions(row));
         select.value = row.choice;
         select.disabled = row.state === 'working';
+        select.title = choiceLabel(row);        // libellé complet au survol
         select.addEventListener('change', () => {
             row.choice = select.value;
+            row.replace = false;        // les écarts dépendent du contrat choisi
             renderRow(row);
             updateBulk();
         });
@@ -345,6 +367,16 @@ function renderRow(row) {
             : [m && m.has_doc ? `Ce contrat a déjà ${DOCS[doc.document].already}.` : '', ...(m ? m.notes : [])].filter(Boolean).join(' ');
         target.append(select);
         if (remark) target.append(el('span', remark, 'sub'));
+        if (row.choice !== 'new' && m && Object.keys(m.diff).length) {
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = row.replace;
+            box.disabled = row.state === 'working';
+            box.addEventListener('change', () => { row.replace = box.checked; });
+            const label = el('label', undefined, 'check');
+            label.append(box, `Remplacer ${diffText(m)}`);
+            target.append(label);
+        }
     }
 
     const status = document.createElement('td');
@@ -418,7 +450,7 @@ function settleCreations() {
 
 async function importMany(files) {
     bulkRows = files.map((file) => {
-        const row = { file, state: 'queued', doc: null, matches: [], choice: '', message: '', target: null, tr: null };
+        const row = { file, state: 'queued', doc: null, matches: [], choice: '', replace: false, message: '', target: null, tr: null };
         if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
             Object.assign(row, { state: 'error', message: 'Ce fichier n\'est pas un PDF.' });
         } else if (file.size > MAX_PDF_SIZE) {
@@ -494,17 +526,19 @@ async function attachRow(row) {
     }
 }
 
-// Étape 3 : valeurs vides des contrats existants complétées, en une seule mise à jour par contrat
+// Étape 3 : contrats existants mis à jour, en une seule requête par contrat : valeurs vides complétées (si la case
+// est cochée) et valeurs différentes remplacées (ligne par ligne, quand la case de la ligne est cochée)
 async function completeContracts(todo) {
-    if (!$('#bulk-fill').checked) return;
     const fills = new Map();
     const done = todo.filter((r) => r.state === 'done' && r.choice !== 'new')
         .sort((a, b) => (a.doc.document === 'bulletin' ? 0 : 1) - (b.doc.document === 'bulletin' ? 0 : 1));
     for (const row of done) {
         const m = selectedMatch(row);
-        if (!m || !Object.keys(m.fill).length) continue;
+        if (!m) continue;
+        const wanted = { ...($('#bulk-fill').checked ? m.fill : {}), ...(row.replace ? diffValues(m) : {}) };
+        if (!Object.keys(wanted).length) continue;
         const entry = fills.get(m.id) || { fill: {}, rows: [] };
-        for (const [k, v] of Object.entries(m.fill)) if (!(k in entry.fill)) entry.fill[k] = v;
+        for (const [k, v] of Object.entries(wanted)) if (!(k in entry.fill)) entry.fill[k] = v;
         entry.rows.push(row);
         fills.set(m.id, entry);
     }
@@ -513,9 +547,9 @@ async function completeContracts(todo) {
         if (!contract) continue;
         try {
             await api(`/api/contracts/${id}`, 'PUT', { ...contractPayload(contract), ...fill });
-            rows.forEach((r) => { r.message += ' · valeurs complétées'; });
+            rows.forEach((r) => { r.message += ' · contrat mis à jour'; });
         } catch (ex) {
-            rows.forEach((r) => { r.message = `PDF joint, mais valeurs non renseignées : ${ex.message}`; });
+            rows.forEach((r) => { r.message = `PDF joint, mais contrat non mis à jour : ${ex.message}`; });
         }
     }
 }

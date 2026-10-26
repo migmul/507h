@@ -1303,6 +1303,11 @@ details[open] > summary .fold-sum {
     .bulk td { display: block; min-width: 0; padding: .2rem 0; border: 0; }
 }
 
+.bulk .check {
+    margin: .4rem 0 0;
+    font-size: .8rem;
+}
+
 /* ==========================================================================
    10. Modales
    ========================================================================== */

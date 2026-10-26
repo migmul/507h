@@ -243,10 +243,7 @@ def _number_found(number, contract):
     runs = re.findall(r"\d+", f"{contract.get('comment') or ''} {contract.get('mission') or ''}")
     return any(r.lstrip("0") == wanted for r in runs if len(r) >= 3)
 
-
-def _eur(value):
-    return f"{value:.2f}".replace(".", ",") + " €"
-
+SAME = {"hours": "mêmes heures", "gross": "même brut", "net": "même net"}
 
 def _fr_date(iso):
     return f"{iso[8:10]}/{iso[5:7]}/{iso[:4]}" if iso else "?"
@@ -271,7 +268,7 @@ def match_contracts(aem, contracts):
         if not (employer_ok or number_ok) or not (number_ok or overlap):
             continue
 
-        score, reasons, notes, fill = 0, [], [], {}
+        score, reasons, notes, fill, diff = 0, [], [], {}, {}
         if number_ok:
             score += 100
             reasons.append(f"n° de contrat {aem['contract_number']} trouvé")
@@ -298,26 +295,25 @@ def match_contracts(aem, contracts):
                 notes.append(partial)
             notes.append("Heures et montants non comparés.")
         else:
-            if aem.get("hours") is not None:
-                if abs(aem["hours"] - c["hours"]) < 0.01:
-                    score += 10
-                    reasons.append("mêmes heures")
-                else:
-                    notes.append(f"Heures : {aem['hours']:g} h sur {src}, {c['hours']:g} h dans l'application.")
-            for field, label in (("gross", "Brut"), ("net", "Net avant impôt")):
-                if aem.get(field) is None:
+            # valeurs vides du contrat -> `fill` ; valeurs différentes -> `diff` (que l'utilisateur peut choisir de remplacer)
+            for field in ("hours", "gross", "net", "days_worked"):
+                value, current = aem.get(field), c.get(field)
+                if value is None:
                     continue
-                if c.get(field) is None:
-                    fill[field] = aem[field]
-                elif abs(aem[field] - c[field]) < 0.01:
-                    score += 10
-                    reasons.append("même brut" if field == "gross" else "même net")
-                else:
-                    notes.append(f"{label} : {_eur(aem[field])} sur {src}, {_eur(c[field])} dans l'application.")
-            if aem.get("days_worked") is not None and c.get("days_worked") is None:
-                fill["days_worked"] = aem["days_worked"]
-            if c.get("annexe") == 10 and aem.get("cachets") and c.get("cachets") is None:
-                fill["cachets"] = aem["cachets"]
+                if current is None:
+                    fill[field] = value
+                elif abs(value - current) < 0.01:
+                    if field != "days_worked":
+                        score += 10
+                        reasons.append(SAME[field])
+                elif not (field == "hours" and (c.get("cachets") is not None
+                                                or (c.get("annexe") == 10 and aem.get("cachets")))):
+                    diff[field] = {"pdf": value, "app": current}      # (en annexe 10, les cachets imposent les heures)
+            if c.get("annexe") == 10 and aem.get("cachets"):
+                if c.get("cachets") is None:
+                    fill["cachets"] = aem["cachets"]
+                elif c["cachets"] != aem["cachets"]:
+                    diff["cachets"] = {"pdf": aem["cachets"], "app": c["cachets"]}
 
         if number_ok and employer_ok:
             level = "certain"
@@ -328,7 +324,7 @@ def match_contracts(aem, contracts):
         results.append({
             "id": c["id"], "employer": c["employer"], "mission": c["mission"],
             "start_date": c["start_date"], "end_date": c["end_date"], "hours": c["hours"],
-            "score": score, "level": level, "reasons": reasons, "notes": notes, "fill": fill,
+            "score": score, "level": level, "reasons": reasons, "notes": notes, "fill": fill, "diff": diff,
             "has_doc": bool(c.get("docs")), "best": False,
         })
 

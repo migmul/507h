@@ -3,6 +3,19 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.27.1] - 2026-10-26
+
+### Ajouté
+- Valeurs différentes entre le PDF et le contrat : au lieu d'une simple remarque, une case « Remplacer … » (brut, net avant impôt, heures, jours travaillés, cachets) propose d'écraser la valeur de l'application par celle du PDF. Elle est décochée par défaut. Dans la fenêtre détaillée, elle apparaît à côté des champs vides proposés (cochés) ; dans le tableau d'import en masse, elle apparaît sous le sélecteur de contrat de la ligne.
+- Les jours travaillés sont désormais comparés, comme le brut, le net et les heures.
+
+### Corrigé
+- Le sélecteur de contrat du tableau d'import affiche le niveau de confiance (Certain, Probable, Possible) en tête de libellé, donc même quand le sélecteur est trop étroit pour afficher la fin ; le libellé complet s'affiche au survol.
+
+### Modifié
+- Les remarques sur les écarts de valeurs disparaissent de la liste des notes, remplacées par les cases de remplacement.
+- En annexe 10, les cachets imposant les heures, un écart de cachets se remplace par les cachets, pas par les heures.
+
 ## [0.27] - 2026-10-26
 
 ### Ajouté
