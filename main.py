@@ -19,7 +19,7 @@ import unicodedata
 import zipfile
 import subprocess
 import sys
-from aem import filename_hint, match_contracts, partial_reason
+from aem import filename_hint, match_contracts, partial_reason, resolve_contract_number
 from bulletin import filename_hint as bulletin_hint
 from collections import defaultdict
 from datetime import date, timedelta
@@ -45,7 +45,7 @@ from werkzeug.utils import secure_filename
 # Configuration
 # ===========================================================================
 
-APP_VERSION = "0.26"
+APP_VERSION = "0.26.1"
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
 INSTANCE = BASE / "instance"
@@ -1385,10 +1385,8 @@ def parse_pdf_isolated(script, hint, data, filename):
         raise ValueError("Ce PDF est illisible.")
     if "error" in doc:
         raise ValueError(doc["error"])
-    guess = hint(filename)      # nom de fichier France Télévisions : secours pour le n° de contrat
-    if not doc.get("contract_number") and guess.get("contract_number"):
-        doc["contract_number"] = guess["contract_number"]
-    return doc
+    # le nom de fichier de France Télévisions confirme (ou, à défaut de lecture, fournit) le n° de contrat
+    return resolve_contract_number(doc, hint(filename).get("contract_number"))
 
 
 def contracts_for_matching(db, uid, kind):

@@ -77,6 +77,18 @@ def _checked(labels, marks):
             found.append(max(owners, key=lambda l: l["x1"])["text"])
     return found
 
+def contract_number(numbers):
+    """Le n° de contrat parmi les nombres lus dans l'en-tête : 6 chiffres (000125), alors que le matricule en a 8."""
+    return next((n for n in numbers if len(n) == 6), None)
+
+
+def resolve_contract_number(doc, wanted):
+    """Retient le n° de contrat du nom de fichier (`wanted`) s'il figure parmi les nombres lus sur la page, ou si
+    rien n'a été lu ; sinon celui que la lecture du PDF a trouvé. Retire la liste des nombres lus."""
+    numbers = doc.pop("contract_numbers", [])
+    if wanted and (not doc.get("contract_number") or wanted in numbers):
+        doc["contract_number"] = wanted
+    return doc
 
 def parse_words(words):
     """Extrait les champs utiles d'une AEM à partir des mots (avec coordonnées) de sa première page."""
@@ -90,8 +102,10 @@ def parse_words(words):
 
     # N° de contrat : en-tête du formulaire de France Télévisions (deuxième valeur de la première ligne)
     head = sorted((w for w in words if w["top"] < 12), key=lambda w: w["x0"])
-    if len(head) >= 4 and re.fullmatch(r"\d{4,10}", head[1]["text"]):
-        out["contract_number"] = head[1]["text"]
+    if len(head) >= 4:
+        numbers = [w["text"] for w in head if re.fullmatch(r"\d{4,10}", w["text"])]
+        out["contract_numbers"] = numbers
+        out["contract_number"] = contract_number(numbers)
 
     # Type d'attestation (initiale, complémentaire, rectificative)
     a = _find(words, "COMPLÉMENTAIRE")

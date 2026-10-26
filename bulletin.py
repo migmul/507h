@@ -13,7 +13,7 @@ L'identité, l'adresse, le numéro de sécurité sociale, les coordonnées banca
 """
 import re
 
-from aem import _date, _number, fold, run
+from aem import _date, _number, contract_number, fold, run
 
 MONTHS = ("janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre",
           "novembre", "decembre")
@@ -82,12 +82,11 @@ def parse_words(words):
             job = [w["text"] for w in line[1:] if w["x0"] < 400]
             out["job_title"] = " ".join(job) or None
             top = line[0]["top"]
-            for other in lines[i + 1:i + 4]:
-                if 0 < other[0]["top"] - top <= 30:
-                    nums = [w["text"] for w in other if w["x0"] > 400 and re.fullmatch(r"\d{4,10}", w["text"])]
-                    if nums:
-                        out["contract_number"] = nums[0]
-                        break
+            found = [w for other in lines[i + 1:i + 4] if 0 < other[0]["top"] - top <= 30
+                     for w in other if w["x0"] > 400 and re.fullmatch(r"\d{4,10}", w["text"])]
+            numbers = [w["text"] for w in sorted(found, key=lambda w: w["x0"])]
+            out["contract_numbers"] = numbers
+            out["contract_number"] = contract_number(numbers[::-1])      # le plus à droite : le matricule est à gauche
             break
 
     # Salaire brut : « SALAIRE BRUT   24,00   793,55 » -> heures (base) et brut (dernier montant de la ligne)

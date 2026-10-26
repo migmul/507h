@@ -3,6 +3,16 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.26.1] - 2026-10-26
+
+### Corrigé
+- Lecture du n° de contrat d'un bulletin de paie ou d'une AEM : l'identifiant à 8 chiffres du salarié (le matricule) n'est plus pris pour le n° de contrat, qui en compte 6.
+- Le n° de contrat du nom de fichier de France Télévisions (`BULLETIN-CONTRAT-000125-…`, `AEM-CONTRAT-000129-…`) est maintenant retenu dès qu'il figure parmi les nombres lus sur la page, et pas seulement quand la lecture n'a rien trouvé.
+- Sur un bulletin de paie, le n° de contrat est cherché en partant de la droite du bloc d'identité, où il est aligné, et non plus du premier nombre rencontré.
+
+### Modifié
+- Les fonctions `contract_number` et `resolve_contract_number` d'`aem.py` sont partagées entre la lecture des AEM et celle des bulletins.
+
 ## [0.26] - 2026-10-26
 
 ### Ajouté
