@@ -3,6 +3,20 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.27] - 2026-10-26
+
+### Ajouté
+- Un seul bouton d'import de PDF dans le menu d'ajout, qui reconnaît lui-même une AEM ou un bulletin de paie (nouvelle route `/api/pdf/analyze`, nouveau point d'entrée `reader.py`).
+- Import de plusieurs PDF à la fois (40 au maximum) : un fichier ouvre la fenêtre détaillée habituelle, plusieurs ouvrent un tableau avec, pour chaque document, son nom et son type, ce qui a été lu, le contrat proposé (liste modifiable : un contrat existant, « Créer un contrat » ou « Ne pas importer ») et son état.
+- Les contrats trop proches pour être départagés sont laissés « à choisir » ; un document sans contrat correspondant propose d'en créer un.
+- Les documents d'un même contrat (AEM et bulletin) créent un seul contrat, prérempli avec leurs valeurs fusionnées (montants du bulletin en priorité, annexe et cachets de l'AEM) ; les AEM complémentaires ou de contrat en cours rejoignent un contrat créé par un document complet.
+- Les champs vides des contrats existants (brut, net avant impôt, jours travaillés) sont complétés en une seule mise à jour par contrat, avec une case pour l'éviter.
+- Les erreurs sont isolées par fichier : un PDF illisible, trop gros, déjà joint ou refusé n'empêche pas les autres, et un nouvel essai ne renvoie que les lignes en échec, sans recréer de contrat.
+
+### Modifié
+- La limite d'analyses passe de 30 à 120 par tranche de 15 minutes et par compte, pour permettre les imports en masse.
+- Le Dockerfile copie aussi `reader.py`.
+
 ## [0.26.1] - 2026-10-26
 
 ### Corrigé

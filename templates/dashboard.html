@@ -62,8 +62,7 @@
                 </button>
                 <div class="menu" id="add-menu" role="menu" hidden>
                     <button type="button" role="menuitem" id="add-training">Ajouter une formation</button>
-                    <button type="button" role="menuitem" id="import-aem">Importer une AEM (PDF)</button>
-                    <button type="button" role="menuitem" id="import-bulletin">Importer un bulletin de paie (PDF)</button>
+                    <button type="button" role="menuitem" id="import-pdf">Importer des PDF (AEM, bulletin de paie)</button>
                 </div>
             </div>
         </div>
@@ -215,8 +214,7 @@
 
 <!-- MODALE - IMPORT PDF -->
 
-<input type="file" id="aem-file" accept="application/pdf,.pdf" hidden>
-<input type="file" id="bulletin-file" accept="application/pdf,.pdf" hidden> 
+<input type="file" id="pdf-files" accept="application/pdf,.pdf" multiple hidden>
 
 <dialog id="aem-dialog">
     <div class="dialog-body">
@@ -244,6 +242,28 @@
             <button class="primary inline" id="aem-attach" type="button" disabled>Rattacher l'AEM</button>
             <button class="ghost" id="aem-create" type="button" hidden>Créer un contrat</button>
             <button class="ghost" type="button" data-close>Annuler</button>
+        </div>
+    </div>
+</dialog>
+
+<dialog id="bulk-dialog">
+    <div class="dialog-body">
+        <div class="card-head">
+            <h2>Importer des PDF</h2>
+            <button type="button" class="ghost" data-close aria-label="Fermer">✕</button>
+        </div>
+        <p class="muted small" id="bulk-summary"></p>
+        <div class="bulk-scroll">
+            <table class="bulk">
+                <thead><tr><th>Document</th><th>Contenu lu</th><th>Contrat</th><th>Statut</th></tr></thead>
+                <tbody id="bulk-rows"></tbody>
+            </table>
+        </div>
+        <label class="check"><input type="checkbox" id="bulk-fill" checked> Compléter les champs vides des contrats (brut, net, jours travaillés)</label>
+        <p class="error" id="bulk-error" role="alert"></p>
+        <div class="row">
+            <button class="primary inline" id="bulk-run" type="button" disabled>Importer</button>
+            <button class="ghost" type="button" data-close>Fermer</button>
         </div>
     </div>
 </dialog>

@@ -45,7 +45,7 @@ from werkzeug.utils import secure_filename
 # Configuration
 # ===========================================================================
 
-APP_VERSION = "0.26.1"
+APP_VERSION = "0.27"
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
 INSTANCE = BASE / "instance"
@@ -1367,10 +1367,10 @@ def remove_files(uid, stored_names):
 
 AEM_TIMEOUT = 20        # secondes
 
-def parse_pdf_isolated(script, hint, data, filename):
-    """Lit un PDF (AEM ou bulletin de paie) dans un sous-processus : un PDF est un fichier non fiable."""
+def parse_pdf_isolated(data):
+    """Lit un PDF importé (AEM ou bulletin de paie) dans un sous-processus : un PDF est un fichier non fiable."""
     try:
-        proc = subprocess.run([sys.executable, str(BASE / script)], input=data, capture_output=True,
+        proc = subprocess.run([sys.executable, str(BASE / "reader.py")], input=data, capture_output=True,
                               timeout=AEM_TIMEOUT, cwd=BASE, env=aem_env())
     except subprocess.TimeoutExpired:
         raise ValueError("La lecture de ce PDF prend trop de temps.")
@@ -1385,9 +1385,7 @@ def parse_pdf_isolated(script, hint, data, filename):
         raise ValueError("Ce PDF est illisible.")
     if "error" in doc:
         raise ValueError(doc["error"])
-    # le nom de fichier de France Télévisions confirme (ou, à défaut de lecture, fournit) le n° de contrat
-    return resolve_contract_number(doc, hint(filename).get("contract_number"))
-
+    return doc
 
 def contracts_for_matching(db, uid, kind):
     """Les contrats de l'utilisateur ; `docs` compte les documents de ce type déjà joints."""
@@ -1397,33 +1395,6 @@ def contracts_for_matching(db, uid, kind):
         " (SELECT COUNT(*) FROM documents d WHERE d.contract_id = c.id AND d.kind = ?) AS docs"
         " FROM contracts c WHERE c.user_id = ?", (kind, uid)).fetchall()
     return [dict(r, gross=cents(r["gross_cents"]), net=cents(r["net_cents"])) for r in rows]
-
-
-def analyze_pdf(script, hint, kind):
-    uid = session["uid"]
-    f = request.files.get("file")
-    if not f:
-        return err("Aucun fichier")
-    data = f.read(MAX_PDF + 1)
-    if len(data) > MAX_PDF:
-        return err("Fichier trop volumineux (10 Mo max)", 413)
-    data = clean_pdf(data)
-    if data is None:
-        return err("Le fichier n'est pas un PDF valide")
-    if hit(f"pdf|{uid}", 30):
-        return err("Trop d'analyses, réessaie dans 15 minutes", 429)
-    try:
-        doc = parse_pdf_isolated(script, hint, data, f.filename)
-    except ValueError as e:
-        return err(str(e), 422)
-    doc["partial"] = partial_reason(doc)
-    db = get_db()
-    known = db.execute("SELECT contract_id FROM documents WHERE user_id=? AND sha256=?",
-                       (uid, hashlib.sha256(data).hexdigest())).fetchone()
-    if known:
-        return jsonify(aem=doc, matches=[], already_attached=known["contract_id"])
-    return jsonify(aem=doc, matches=match_contracts(doc, contracts_for_matching(db, uid, kind)),
-                   already_attached=None)
 
 @app.get("/api/contracts")
 @login_required
@@ -1547,15 +1518,36 @@ def delete_document(did):
     remove_files(uid, [r["stored_name"]])
     return jsonify(ok=True)
 
-@app.post("/api/aem/analyze")
+@app.post("/api/pdf/analyze")
 @login_required
-def analyze_aem():
-    return analyze_pdf("aem.py", filename_hint, "aem")
-
-@app.post("/api/bulletins/analyze")
-@login_required
-def analyze_bulletin():
-    return analyze_pdf("bulletin.py", bulletin_hint, "bulletin")
+def analyze_pdf():
+    uid = session["uid"]
+    f = request.files.get("file")
+    if not f:
+        return err("Aucun fichier")
+    data = f.read(MAX_PDF + 1)
+    if len(data) > MAX_PDF:
+        return err("Fichier trop volumineux (10 Mo max)", 413)
+    data = clean_pdf(data)
+    if data is None:
+        return err("Le fichier n'est pas un PDF valide")
+    if hit(f"pdf|{uid}", 120):       # un import en masse enchaîne les analyses
+        return err("Trop d'analyses, réessaie dans 15 minutes", 429)
+    try:
+        doc = parse_pdf_isolated(data)
+    except ValueError as e:
+        return err(str(e), 422)
+    # le nom de fichier de France Télévisions confirme (ou, à défaut de lecture, fournit) le n° de contrat
+    hint = bulletin_hint if doc["document"] == "bulletin" else filename_hint
+    resolve_contract_number(doc, hint(f.filename).get("contract_number"))
+    doc["partial"] = partial_reason(doc)
+    db = get_db()
+    known = db.execute("SELECT contract_id FROM documents WHERE user_id=? AND sha256=?",
+                       (uid, hashlib.sha256(data).hexdigest())).fetchone()
+    if known:
+        return jsonify(doc=doc, matches=[], already_attached=known["contract_id"])
+    return jsonify(doc=doc, matches=match_contracts(doc, contracts_for_matching(db, uid, doc["document"])),
+                   already_attached=None)
 
 # ===========================================================================
 # Droits ARE, virements et progression
