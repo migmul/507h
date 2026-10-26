@@ -1,7 +1,9 @@
 """Lecture d'une AEM (attestation employeur mensuelle, formulaire DAJ 110) et rattachement à un contrat.
 
-Deux usages :
-- importé par main.py : `filename_hint` et `match_contracts` (fonctions pures, sans dépendance lourde) ;
+Trois usages :
+- importé par main.py : `filename_hint`, `partial_reason` et `match_contracts` (fonctions pures, sans dépendance lourde),
+  `match_contracts` servant aussi aux bulletins de paie (bulletin.py) ;
+- importé par bulletin.py : `run` et les petites fonctions de lecture ;
 - lancé comme script (`python aem.py < fichier.pdf`) : lit un PDF sur l'entrée standard et écrit un JSON sur la
   sortie standard. main.py l'exécute ainsi dans un sous-processus à durée et mémoire limitées, car un PDF
   est un fichier non fiable.
@@ -79,6 +81,8 @@ def _checked(labels, marks):
 def parse_words(words):
     """Extrait les champs utiles d'une AEM à partir des mots (avec coordonnées) de sa première page."""
     text = fold(" ".join(w["text"] for w in words))
+    if "bulletin de paie" in text:
+        raise ValueError("Ce PDF est un bulletin de paie : utilise « Importer un bulletin de paie ».")
     if "annexes 8 et 10" not in text or "attestation" not in text:
         raise ValueError("Ce PDF ne ressemble pas à une attestation employeur mensuelle (AEM).")
 
@@ -99,7 +103,7 @@ def parse_words(words):
         if kinds:
             out["type"] = TYPE_LABELS[kinds[0]]
 
-    # Mois concerné : chiffres isolés en cases à droite de « MOIS » (« 1 0 20 2 6 » -> 10 / 2026)
+    # Mois de paie : chiffres isolés en cases à droite de « MOIS » (« 1 0 20 2 6 » -> 10 / 2026)
     a = _find(words, "MOIS")
     if a:
         digits = "".join(w["text"] for w in _row(words, a["top"], -8, 8)
@@ -114,7 +118,7 @@ def parse_words(words):
                 if w["x0"] > a["x1"] and w["x0"] < 380 and w["text"] != "Sociale"]
         out["employer"] = " ".join(name) or None
 
-    # Emploi occupé et catégorie
+    # Emploi occupé et annexe (déduite de la catégorie cochée)
     a = _find(words, "occupé")
     if a:
         job = [w["text"] for w in _row(words, a["top"], -3, 3) if a["x1"] < w["x0"] < 330]
@@ -130,7 +134,7 @@ def parse_words(words):
             out["annexe"] = 8
 
     # Dates du contrat : début à gauche, fin à droite, trois cases jour / mois / année
-    a = _find_ending(words, "embauche")      # « d'embauche » (apostrophe droite ou typographique)
+    a = _find_ending(words, "embauche")         # « d'embauche » (apostrophe droite ou typographique)
     if a:
         row = [w for w in _row(words, a["top"], -10, 3) if re.fullmatch(r"\d{1,4}", w["text"])]
         out["start_date"] = _date([w["text"] for w in row if w["x0"] < 300])
@@ -178,7 +182,7 @@ def read_words(data):
         if not pdf.pages:
             raise ValueError("Ce PDF est vide.")
         if len(pdf.pages) > MAX_PAGES:
-            raise ValueError("Ce PDF a trop de pages pour être une AEM.")
+            raise ValueError("Ce PDF a trop de pages pour être un document de ce type.")
         return pdf.pages[0].extract_words(x_tolerance=2, y_tolerance=2)
 
 
@@ -188,15 +192,30 @@ def filename_hint(name):
     if not m:
         return {}
     n, d1, m1, y1, d2, m2, y2 = m.groups()
-    hint = {"contract_number": n}
-    hint["start_date"] = _date([d1, m1, y1])
-    hint["end_date"] = _date([d2, m2, y2])
-    return hint
+    return {"contract_number": n, "start_date": _date([d1, m1, y1]), "end_date": _date([d2, m2, y2])}
 
 
 # ---------------------------------------------------------------------------
-# Rattachement à un contrat existant
+# Rattachement à un contrat existant (AEM ou bulletin de paie)
 # ---------------------------------------------------------------------------
+def partial_reason(doc):
+    """Pourquoi ce document ne couvre qu'une partie du contrat, ou None s'il le couvre en entier.
+
+    Le « mois » d'une AEM est celui du règlement de la paie, pas celui du travail : un contrat de septembre
+    payé en octobre porte une AEM d'octobre. Ce qui compte, c'est que le document couvre tout le contrat.
+    Un bulletin de paie, lui, est établi par contrat : il le couvre toujours en entier.
+    """
+    if doc.get("document") == "bulletin":
+        return None
+    if doc.get("type") in ("complémentaire", "rectificative"):
+        return f"AEM {doc['type']} : elle ne couvre qu'une partie du contrat ou en corrige une autre."
+    if not doc.get("end_date"):
+        return "Contrat en cours : cette AEM ne couvre que la paie de son mois."
+    if doc.get("type") is None and (doc.get("start_date") or "")[:7] != doc["end_date"][:7]:
+        return "Contrat sur plusieurs mois : cette AEM ne couvre peut-être qu'une partie du contrat."
+    return None
+
+
 def _same_employer(a, b):
     a, b = fold(a), fold(b)
     return bool(a) and bool(b) and (a == b or a in b or b in a)
@@ -218,28 +237,17 @@ def _eur(value):
 def _fr_date(iso):
     return f"{iso[8:10]}/{iso[5:7]}/{iso[:4]}" if iso else "?"
 
-def partial_reason(aem):
-    """Pourquoi cette AEM ne couvre qu'une partie du contrat, ou None si elle le couvre en entier.
-
-    Le « mois » d'une AEM est celui du règlement de la paie, pas celui du travail : un contrat de septembre
-    payé en octobre porte une AEM d'octobre. Ce qui compte, c'est que cette AEM couvre tout le contrat.
-    """
-    if aem.get("type") in ("complémentaire", "rectificative"):
-        return f"AEM {aem['type']} : elle ne couvre qu'une partie du contrat ou en corrige une autre."
-    if not aem.get("end_date"):
-        return "Contrat en cours : cette AEM ne couvre que la paie de son mois."
-    if aem.get("type") is None and (aem.get("start_date") or "")[:7] != aem["end_date"][:7]:
-        return "Contrat sur plusieurs mois : cette AEM ne couvre peut-être qu'une partie du contrat."
-    return None
 
 def match_contracts(aem, contracts):
-    """Classe les contrats de l'application susceptibles de correspondre à l'AEM.
+    """Classe les contrats de l'application susceptibles de correspondre à une AEM ou à un bulletin de paie.
 
-    contracts : dicts avec id, employer, mission, comment, start_date, end_date, hours, gross, days_worked,
-    cachets, annexe, aem_docs. Retourne les candidats, du plus probable au moins probable.
+    contracts : dicts avec id, employer, mission, comment, start_date, end_date, hours, gross, net, days_worked,
+    cachets, annexe, docs (nombre de documents de ce type déjà joints). Retourne les candidats, du plus probable
+    au moins probable.
     """
     a_start, a_end = aem.get("start_date"), aem.get("end_date") or aem.get("start_date")
     partial = partial_reason(aem)
+    src = "le bulletin" if aem.get("document") == "bulletin" else "l'AEM"
 
     results = []
     for c in contracts:
@@ -267,29 +275,31 @@ def match_contracts(aem, contracts):
             score += 10
             reasons.append("dates qui se recoupent")
         if number_ok and aem.get("end_date") and not (same_start and same_end):
-            notes.append(f"Dates : {_fr_date(a_start)} → {_fr_date(a_end)} sur l'AEM, "
+            notes.append(f"Dates : {_fr_date(a_start)} → {_fr_date(a_end)} sur {src}, "
                          f"{_fr_date(c['start_date'])} → {_fr_date(c['end_date'])} dans l'application.")
 
-        # Heures et brut ne se comparent que si l'AEM couvre exactement ce contrat
+        # Heures et montants ne se comparent que si le document couvre exactement ce contrat
         if partial or not (same_start and same_end):
             if partial:
                 notes.append(partial)
-            notes.append("Heures et brut non comparés.")
+            notes.append("Heures et montants non comparés.")
         else:
             if aem.get("hours") is not None:
                 if abs(aem["hours"] - c["hours"]) < 0.01:
                     score += 10
                     reasons.append("mêmes heures")
                 else:
-                    notes.append(f"Heures : {aem['hours']:g} h sur l'AEM, {c['hours']:g} h dans l'application.")
-            if aem.get("gross") is not None:
-                if c.get("gross") is None:
-                    fill["gross"] = aem["gross"]
-                elif abs(aem["gross"] - c["gross"]) < 0.01:
+                    notes.append(f"Heures : {aem['hours']:g} h sur {src}, {c['hours']:g} h dans l'application.")
+            for field, label in (("gross", "Brut"), ("net", "Net avant impôt")):
+                if aem.get(field) is None:
+                    continue
+                if c.get(field) is None:
+                    fill[field] = aem[field]
+                elif abs(aem[field] - c[field]) < 0.01:
                     score += 10
-                    reasons.append("même brut")
+                    reasons.append("même brut" if field == "gross" else "même net")
                 else:
-                    notes.append(f"Brut : {_eur(aem['gross'])} sur l'AEM, {_eur(c['gross'])} dans l'application.")
+                    notes.append(f"{label} : {_eur(aem[field])} sur {src}, {_eur(c[field])} dans l'application.")
             if aem.get("days_worked") is not None and c.get("days_worked") is None:
                 fill["days_worked"] = aem["days_worked"]
             if c.get("annexe") == 10 and aem.get("cachets") and c.get("cachets") is None:
@@ -305,7 +315,7 @@ def match_contracts(aem, contracts):
             "id": c["id"], "employer": c["employer"], "mission": c["mission"],
             "start_date": c["start_date"], "end_date": c["end_date"], "hours": c["hours"],
             "score": score, "level": level, "reasons": reasons, "notes": notes, "fill": fill,
-            "has_aem": bool(c.get("aem_docs")), "best": False,
+            "has_doc": bool(c.get("docs")), "best": False,
         })
 
     results.sort(key=lambda r: (-r["score"], -r["id"]))
@@ -328,14 +338,15 @@ def _limit_resources():
         pass        # plateforme sans limites de ressources : la durée reste bornée par main.py
 
 
-def main():
+def run(parse):
+    """Lit un PDF sur l'entrée standard, le fait analyser par `parse(words)` et écrit le résultat en JSON."""
     _limit_resources()
     data = sys.stdin.buffer.read(MAX_PDF + 1)
     start = data.find(b"%PDF-", 0, 1024)        # octets parasites avant l'en-tête : on les retire
     if start > 0:
         data = data[start:]
     try:
-        result = parse_words(read_words(data))
+        result = parse(read_words(data))
     except ValueError as e:
         result = {"error": str(e)}
     except ImportError:
@@ -350,4 +361,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run(parse_words)

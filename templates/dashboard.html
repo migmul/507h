@@ -63,6 +63,7 @@
                 <div class="menu" id="add-menu" role="menu" hidden>
                     <button type="button" role="menuitem" id="add-training">Ajouter une formation</button>
                     <button type="button" role="menuitem" id="import-aem">Importer une AEM (PDF)</button>
+                    <button type="button" role="menuitem" id="import-bulletin">Importer un bulletin de paie (PDF)</button>
                 </div>
             </div>
         </div>
@@ -215,11 +216,12 @@
 <!-- MODALE - IMPORT PDF -->
 
 <input type="file" id="aem-file" accept="application/pdf,.pdf" hidden>
+<input type="file" id="bulletin-file" accept="application/pdf,.pdf" hidden> 
 
 <dialog id="aem-dialog">
     <div class="dialog-body">
         <div class="card-head">
-            <h2>Importer une AEM</h2>
+            <h2 id="aem-title">Importer une AEM</h2>
             <button type="button" class="ghost" data-close aria-label="Fermer">✕</button>
         </div>
         <p class="muted" id="aem-info" hidden></p>
@@ -249,4 +251,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pdf-import.js') }}"></script>
 {% endblock %}

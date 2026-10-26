@@ -3,6 +3,20 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.26] - 2026-10-26
+
+### Ajouté
+- Import d'un bulletin de paie (PDF) depuis le menu du bouton d'ajout (« Importer un bulletin de paie (PDF) ») : le document est lu, rattaché au contrat correspondant et classé comme « Bulletin ». Un bulletin étant établi par contrat, il couvre toujours le contrat entier : heures, brut et net sont donc toujours comparés.
+- Lecture du bulletin de paie France Télévisions par `bulletin.py` : employeur, emploi, n° de contrat, mois de paie, période du contrat, date de paiement, heures, journées, salaire brut et net à payer avant impôt sur le revenu. L'identité, l'adresse, le numéro de sécurité sociale, les coordonnées bancaires et les cumuls ne sont jamais lus.
+- Le net avant impôt du bulletin est proposé en complément quand le champ du contrat est vide, comme le brut et les jours travaillés ; les écarts sont signalés sans rien écraser.
+- Création d'un contrat prérempli à partir d'un bulletin, avec le PDF joint comme « Bulletin ».
+- Un PDF envoyé dans le mauvais import (AEM dans l'import de bulletin, ou l'inverse) est reconnu et orienté vers le bon.
+
+### Modifié
+- Les deux imports partagent la même fenêtre, la même analyse isolée et les mêmes limites ; la route d'analyse devient commune (`/api/aem/analyze`, `/api/bulletins/analyze`).
+- Le rattachement indique si le contrat a déjà un document du même type joint (AEM ou bulletin).
+- Le `Dockerfile` copie aussi `bulletin.py`.
+
 ## [0.25] - 2026-10-26
 
 ### Ajouté
