@@ -19,7 +19,7 @@ import unicodedata
 import zipfile
 import subprocess
 import sys
-from aem import filename_hint, match_contracts
+from aem import filename_hint, match_contracts, partial_reason
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
@@ -44,7 +44,7 @@ from werkzeug.utils import secure_filename
 # Configuration
 # ===========================================================================
 
-APP_VERSION = "0.24.1"
+APP_VERSION = "0.25"
 BASE = Path(__file__).parent
 load_dotenv(BASE / ".env")
 INSTANCE = BASE / "instance"
@@ -1541,6 +1541,7 @@ def analyze_aem():
         aem = parse_aem_isolated(data, f.filename)
     except ValueError as e:
         return err(str(e), 422)
+    aem["partial"] = partial_reason(aem)
     db = get_db()
     known = db.execute("SELECT contract_id FROM documents WHERE user_id=? AND sha256=?",
                        (uid, hashlib.sha256(data).hexdigest())).fetchone()

@@ -3,6 +3,18 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.25] - 2026-10-26
+
+### Ajouté
+- Création d'un contrat à partir d'une AEM : le bouton « Créer un contrat » de la fenêtre d'import ouvre le formulaire de contrat prérempli (annexe, employeur, poste, dates, heures ou cachets, jours travaillés, brut). Le PDF est déjà joint comme AEM et part avec l'enregistrement. Le bouton est en avant quand aucun contrat existant ne correspond, et reste disponible à côté de « Rattacher l'AEM » sinon.
+- L'employeur et le poste reprennent l'orthographe déjà utilisée dans l'application (« France Télévisions » plutôt que « FRANCE TELEVISIONS »), ce qui garde la détection des doublons et les plafonds annuels fiables.
+- Le commentaire reçoit le n° de contrat de l'AEM : les AEM suivantes du même contrat s'y rattacheront avec certitude.
+- Une AEM qui ne couvre qu'une partie du contrat (complémentaire, rectificative ou contrat en cours) ne préremplit ni les heures, ni les jours, ni le brut, qui ne sont pas ceux du contrat entier ; un bandeau l'explique.
+- Le contrôle de doublon habituel s'applique au contrat prérempli.
+
+### Modifié
+- `aem.py` expose `partial_reason`, utilisé par le rattachement et renvoyé par l'analyse (`aem.partial`).
+
 ## [0.24.1] - 2026-10-26
 
 ### Corrigé

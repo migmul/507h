@@ -218,6 +218,19 @@ def _eur(value):
 def _fr_date(iso):
     return f"{iso[8:10]}/{iso[5:7]}/{iso[:4]}" if iso else "?"
 
+def partial_reason(aem):
+    """Pourquoi cette AEM ne couvre qu'une partie du contrat, ou None si elle le couvre en entier.
+
+    Le « mois » d'une AEM est celui du règlement de la paie, pas celui du travail : un contrat de septembre
+    payé en octobre porte une AEM d'octobre. Ce qui compte, c'est que cette AEM couvre tout le contrat.
+    """
+    if aem.get("type") in ("complémentaire", "rectificative"):
+        return f"AEM {aem['type']} : elle ne couvre qu'une partie du contrat ou en corrige une autre."
+    if not aem.get("end_date"):
+        return "Contrat en cours : cette AEM ne couvre que la paie de son mois."
+    if aem.get("type") is None and (aem.get("start_date") or "")[:7] != aem["end_date"][:7]:
+        return "Contrat sur plusieurs mois : cette AEM ne couvre peut-être qu'une partie du contrat."
+    return None
 
 def match_contracts(aem, contracts):
     """Classe les contrats de l'application susceptibles de correspondre à l'AEM.
@@ -226,17 +239,7 @@ def match_contracts(aem, contracts):
     cachets, annexe, aem_docs. Retourne les candidats, du plus probable au moins probable.
     """
     a_start, a_end = aem.get("start_date"), aem.get("end_date") or aem.get("start_date")
-
-    # Le « mois » de l'AEM est celui du règlement de la paie, pas celui du travail : un contrat de septembre
-    # payé en octobre porte une AEM d'octobre. Ce qui compte, c'est que cette AEM couvre tout le contrat.
-    # Une AEM complémentaire ou rectificative, ou un contrat en cours (pas de date de fin), n'en couvre qu'une partie.
-    partial = None
-    if aem.get("type") in ("complémentaire", "rectificative"):
-        partial = f"AEM {aem['type']} : elle ne couvre qu'une partie du contrat ou en corrige une autre."
-    elif not aem.get("end_date"):
-        partial = "Contrat en cours : cette AEM ne couvre que la paie de son mois."
-    elif aem.get("type") is None and a_start[:7] != a_end[:7]:
-        partial = "Contrat sur plusieurs mois : cette AEM ne couvre peut-être qu'une partie du contrat."
+    partial = partial_reason(aem)
 
     results = []
     for c in contracts:

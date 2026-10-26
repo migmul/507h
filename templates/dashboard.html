@@ -154,6 +154,7 @@
             <ul id="existing-docs" class="docs"></ul>
         </fieldset>
 
+        <div class="alert warn full" id="aem-draft-note" role="status" hidden></div>
         <div class="alert warn full" id="dup-warning" role="alert" hidden></div>
         <p class="error full" id="form-error" role="alert"></p>
         <div class="row full">
@@ -234,11 +235,12 @@
                 </div>
                 <p class="alert warn" id="aem-notes" hidden></p>
             </div>
-            <p class="muted" id="aem-none" hidden>Aucun contrat de l'application ne correspond à cette AEM. Ajoute d'abord le contrat, puis réimporte l'AEM.</p>
+            <p class="muted" id="aem-none" hidden>Aucun contrat de l'application ne correspond à cette AEM. Tu peux en créer un à partir de ses données.</p>
         </div>
         <p class="error" id="aem-error" role="alert"></p>
         <div class="row">
             <button class="primary inline" id="aem-attach" type="button" disabled>Rattacher l'AEM</button>
+            <button class="ghost" id="aem-create" type="button" hidden>Créer un contrat</button>
             <button class="ghost" type="button" data-close>Annuler</button>
         </div>
     </div>

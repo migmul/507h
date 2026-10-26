@@ -739,6 +739,7 @@ let aemFile = null;
 let aemUploaded = false;     // le PDF est déjà joint : un nouvel essai ne le renvoie pas
 let aemChoices = [];         // [{ match, radio }]
 let aemFills = [];           // [{ field, value, box }]
+let aemData = null; // résultat de l'analyse, pour créer un contrat
 
 // Le formulaire d'édition attend le contrat complet : on le reconstitue à partir de la liste chargée
 function contractPayload(c) {
@@ -791,6 +792,9 @@ function renderAem(res) {
     $('#aem-error').textContent = '';
     $('#aem-info').hidden = $('#aem-body').hidden = true;
     $('#aem-attach').disabled = true;
+    $('#aem-attach').hidden = false;
+    $('#aem-create').hidden = true;
+    aemData = null;
     aemChoices = [];
     aemFills = [];
     if (res.loading) {
@@ -812,6 +816,11 @@ function renderAem(res) {
     $('#aem-warnings').textContent = res.aem.warnings.join(' ');
     $('#aem-warnings').hidden = !res.aem.warnings.length;
     $('#aem-body').hidden = false;
+    aemData = res.aem;
+    const found = res.matches.length > 0;
+    $('#aem-attach').hidden = !found;
+    $('#aem-create').hidden = false;
+    $('#aem-create').className = found ? 'ghost' : 'primary inline';
 
     const list = $('#aem-match-list');
     $('#aem-matches').hidden = !res.matches.length;
@@ -892,6 +901,68 @@ $('#aem-attach').onclick = async () => {
         load();
     }
 };
+
+/* ---------- Création d'un contrat à partir d'une AEM ---------- */
+const sentenceCase = (s) => (s === s.toUpperCase() ? s.charAt(0) + s.slice(1).toLowerCase() : s);
+const knownSpelling = (value, known) => known.find((k) => fold(k) === fold(value));
+
+// Valeurs du formulaire de contrat déduites d'une AEM. Si l'AEM n'en couvre qu'une partie (complémentaire,
+// rectificative ou contrat en cours), ses heures, jours et brut ne sont pas ceux du contrat : on ne les reprend pas.
+function contractFromAem(aem) {
+    const jobs = [...new Set(contracts.map((c) => c.job_title).filter(Boolean))];
+    const v = {
+        annexe: aem.annexe || defaultAnnexe,
+        employer: knownSpelling(aem.employer, employers) || aem.employer,    // « France Télévisions » plutôt que « FRANCE TELEVISIONS »
+        job_title: aem.job_title ? knownSpelling(aem.job_title, jobs) || sentenceCase(aem.job_title) : '',
+        start_date: aem.start_date || '',
+        end_date: aem.end_date || '',
+        comment: aem.contract_number || '',        // le n° de contrat sert au rattachement des prochaines AEM
+    };
+    if (!aem.partial) {
+        if (v.annexe === 10 && aem.cachets) v.cachets = aem.cachets;    // les cachets imposent les heures
+        else if (aem.hours != null) v.hours = aem.hours;
+        if (aem.days_worked != null) v.days_worked = aem.days_worked;
+        if (aem.gross != null) v.gross = aem.gross;
+    }
+    return v;
+}
+
+function createFromAem() {
+    const aem = aemData;
+    if (!aem || !aemFile) return;
+    const v = contractFromAem(aem);
+    aemDialog.close();
+    openDialog(null);
+    setAnnexe(v.annexe);
+    for (const k of ['employer', 'job_title', 'start_date', 'end_date', 'comment', 'hours', 'cachets', 'days_worked', 'gross']) {
+        if (v[k] !== undefined) form.elements[k].value = v[k];
+    }
+    syncCachets();
+    updateDaysHint();
+    checkDup();
+    $('#form-title').textContent = 'Nouveau contrat depuis une AEM';
+
+    // Le PDF part avec le formulaire, comme s'il avait été choisi dans la case « AEM »
+    let attached = true;
+    try {
+        const files = new DataTransfer();
+        files.items.add(aemFile);
+        form.elements.file_aem.files = files.files;
+    } catch {
+        attached = false;
+    }
+    const lines = ['Valeurs lues dans l\'AEM : vérifie-les avant d\'enregistrer.'];
+    lines.push(attached ? 'Le PDF sera joint au contrat.' : 'Joins le PDF dans la case « AEM » ci-dessous.');
+    if (aem.partial) {
+        lines.push(aem.partial, 'Les heures, les jours et le brut ne sont pas renseignés : saisis ceux du contrat entier.');
+        if (!aem.end_date) lines.push('Renseigne aussi la date de fin.');
+    }
+    $('#aem-draft-note').textContent = lines.join(' ');
+    $('#aem-draft-note').hidden = false;
+}
+
+form.addEventListener('reset', () => { $('#aem-draft-note').hidden = true; });
+$('#aem-create').onclick = createFromAem;
 
 renderHead();
 load().finally(() => Boot.ready());
