@@ -164,7 +164,7 @@ def parse_words(words):
         warnings.append("La date de fin précède la date de début : vérifie le document.")
     if out.get("type") in ("complémentaire", "rectificative"):
         warnings.append(f"AEM {out['type']} : elle complète ou corrige une attestation précédente.")
-    for key, label in (("end_date", "date de fin"), ("gross", "salaire brut"), ("hours", "heures")):
+    for key, label in (("gross", "salaire brut"), ("hours", "heures")):
         if out.get(key) is None:
             warnings.append(f"{label[0].upper()}{label[1:]} non lu(e) : à renseigner à la main.")
     out["warnings"] = warnings
@@ -226,7 +226,18 @@ def match_contracts(aem, contracts):
     cachets, annexe, aem_docs. Retourne les candidats, du plus probable au moins probable.
     """
     a_start, a_end = aem.get("start_date"), aem.get("end_date") or aem.get("start_date")
-    month = aem.get("month")
+
+    # Le « mois » de l'AEM est celui du règlement de la paie, pas celui du travail : un contrat de septembre
+    # payé en octobre porte une AEM d'octobre. Ce qui compte, c'est que cette AEM couvre tout le contrat.
+    # Une AEM complémentaire ou rectificative, ou un contrat en cours (pas de date de fin), n'en couvre qu'une partie.
+    partial = None
+    if aem.get("type") in ("complémentaire", "rectificative"):
+        partial = f"AEM {aem['type']} : elle ne couvre qu'une partie du contrat ou en corrige une autre."
+    elif not aem.get("end_date"):
+        partial = "Contrat en cours : cette AEM ne couvre que la paie de son mois."
+    elif aem.get("type") is None and a_start[:7] != a_end[:7]:
+        partial = "Contrat sur plusieurs mois : cette AEM ne couvre peut-être qu'une partie du contrat."
+
     results = []
     for c in contracts:
         employer_ok = _same_employer(aem.get("employer"), c["employer"])
@@ -252,14 +263,16 @@ def match_contracts(aem, contracts):
         elif overlap:
             score += 10
             reasons.append("dates qui se recoupent")
-        if number_ok and not (same_start and same_end):
+        if number_ok and aem.get("end_date") and not (same_start and same_end):
             notes.append(f"Dates : {_fr_date(a_start)} → {_fr_date(a_end)} sur l'AEM, "
                          f"{_fr_date(c['start_date'])} → {_fr_date(c['end_date'])} dans l'application.")
 
-        # Heures et brut ne se comparent que si le contrat tient dans le mois de l'AEM : sinon l'AEM
-        # n'en couvre qu'une partie.
-        single_month = bool(month) and c["start_date"][:7] == c["end_date"][:7] == month
-        if single_month:
+        # Heures et brut ne se comparent que si l'AEM couvre exactement ce contrat
+        if partial or not (same_start and same_end):
+            if partial:
+                notes.append(partial)
+            notes.append("Heures et brut non comparés.")
+        else:
             if aem.get("hours") is not None:
                 if abs(aem["hours"] - c["hours"]) < 0.01:
                     score += 10
@@ -278,9 +291,6 @@ def match_contracts(aem, contracts):
                 fill["days_worked"] = aem["days_worked"]
             if c.get("annexe") == 10 and aem.get("cachets") and c.get("cachets") is None:
                 fill["cachets"] = aem["cachets"]
-        elif month:
-            notes.append("Contrat sur plusieurs mois : l'AEM ne couvre que "
-                         f"{month[5:]}/{month[:4]}, les heures et le brut ne sont pas comparés.")
 
         if number_ok and employer_ok:
             level = "certain"

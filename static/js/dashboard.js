@@ -761,7 +761,7 @@ function aemRows(a) {
     return [
         ['Employeur', a.employer],
         ['Contrat', period + (a.contract_number ? ` · n° ${a.contract_number}` : '')],
-        ['Mois de l\'attestation', a.month ? `${a.month.slice(5)}/${a.month.slice(0, 4)}` : '–'],
+        ['Mois de paie', a.month ? `${a.month.slice(5)}/${a.month.slice(0, 4)}` : '–'],
         ['Travail déclaré', work || '–'],
         ['Brut', money(a.gross)],
     ];

@@ -3,6 +3,17 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.24.1] - 2026-10-26
+
+### Corrigé
+- Import d'AEM : un contrat payé le mois suivant (par exemple un contrat du 25/09 dont l'AEM porte le mois 10/2026) n'est plus traité comme un contrat sur plusieurs mois. Le mois d'une AEM est celui du règlement de la paie, pas celui du travail.
+- Les heures et le brut ne sont plus comparés, et aucune valeur n'est proposée en complément, que lorsque l'AEM couvre exactement le contrat : mêmes dates, pas de contrat en cours (la date de fin est renseignée) et pas d'AEM complémentaire ou rectificative.
+- Une AEM complémentaire, rectificative ou de contrat en cours affiche une note précise au lieu du message sur plusieurs mois.
+
+### Modifié
+- Fenêtre d'import : la ligne « Mois de l'attestation » devient « Mois de paie ».
+- La lecture ne signale plus l'absence de date de fin comme une anomalie : elle est normale pour un contrat en cours.
+
 ## [0.24] - 2026-10-26
 
 ### Ajouté
