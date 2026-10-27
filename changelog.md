@@ -3,6 +3,15 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.28.2] - 2026-10-27
+
+### Modifié
+- Sur téléphone, un clic sur un document de la fiche d'un contrat ouvre le PDF dans un onglet, avec la visionneuse native du navigateur. La modale PDF.js est réservée à l'ordinateur.
+
+### Supprimé
+- Le réglage `PDF_ON_MOBILE` et tout l'habillage mobile de la modale (plein écran, marges d'encoche, titre sur deux lignes, boutons réduits).
+- Le zoom « largeur de page » propre au téléphone : la modale s'ouvre toujours en zoom automatique.
+
 ## [0.28.1] - 2026-10-27
 
 ### Corrigé

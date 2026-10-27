@@ -423,11 +423,14 @@ function renderDocs() {
     for (const d of editingDocs) {
         const li = document.createElement('li');
         const a = el('a', `${KIND_LABEL[d.kind]} – ${d.name}`);
-        a.href = `/api/documents/${d.id}`;          // clic molette ou « ouvrir dans un onglet » : le PDF s'affiche dans le navigateur
+        a.href = `/api/documents/${d.id}`;          // le PDF s'affiche dans le navigateur
+        a.target = '_blank';
+        a.rel = 'noopener';
         a.onclick = (e) => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+            // téléphone (visionneuse native de l'onglet) ou clic avec Ctrl / Cmd / molette : comportement normal du lien
+            if (isMobile() || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
             e.preventDefault();
-            openPdf(d);         // viewer du site (pdf-viewer.js)
+            openPdf(d);         // ordinateur : viewer du site dans une modale (pdf-viewer.js)
         };
         const del = el('button', 'Retirer', 'ghost danger');
         del.type = 'button';
