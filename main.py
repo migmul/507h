@@ -356,15 +356,22 @@ def check_csrf():
         if not sent or not secrets.compare_digest(sent.encode(), session.get("csrf", "").encode()):
             abort(403)
 
+# Viewer PDF.js : script, worker et wasm du site uniquement ; il peut être affiché dans une page du site
+PDFJS_CSP = (
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data:; "
+    "worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
+
 
 @app.after_request
 def security_headers(resp):
-    resp.headers["Content-Security-Policy"] = (
+    viewer = request.path.startswith("/static/pdfjs/")      # viewer PDF.js, affiché dans une modale du site
+    resp.headers["Content-Security-Policy"] = PDFJS_CSP if viewer else (
         "default-src 'self'; object-src 'none'; base-uri 'none'; "
         "frame-ancestors 'none'; form-action 'self'")
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "same-origin"
-    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["X-Frame-Options"] = "SAMEORIGIN" if viewer else "DENY"
     if request.path.startswith("/api/") or request.path in ("/", "/login"):
         resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -1502,8 +1509,9 @@ def download_document(did):
         data = FERNET.decrypt((UPLOAD_DIR / str(uid) / r["stored_name"]).read_bytes())
     except (FileNotFoundError, InvalidToken):
         return err("Fichier indisponible", 410)
+    # affiché dans le viewer par défaut ; `?download=1` force le téléchargement
     return send_file(io.BytesIO(data), mimetype="application/pdf",
-                     as_attachment=True, download_name=r["original_name"])
+                     as_attachment=request.args.get("download") == "1", download_name=r["original_name"])
 
 @app.delete("/api/documents/<int:did>")
 @login_required

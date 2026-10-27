@@ -1,0 +1,9 @@
+/* Habillage du viewer PDF.js pour le site (ajouté par pdf-viewer.js).
+   Le téléchargement est dans l'en-tête de la modale ; l'ouverture d'un fichier local n'a pas de sens ici. */
+#openFile,
+#secondaryOpenFile,
+#download,
+#downloadButton,
+#secondaryDownload {
+    display: none !important;
+}

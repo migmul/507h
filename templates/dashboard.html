@@ -268,8 +268,20 @@
     </div>
 </dialog>
 
+<!-- MODALE - VIEWER PDF -->
+
+<dialog id="pdf-dialog">
+    <div class="pdf-bar">
+        <strong id="pdf-title"></strong>
+        <button type="button" id="pdf-download">Télécharger</button>
+        <button type="button" class="ghost" data-close aria-label="Fermer">✕</button>
+    </div>
+    <iframe id="pdf-frame" title="Visionneuse PDF"></iframe>
+</dialog>
+
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 <script src="{{ url_for('static', filename='js/pdf-import.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pdf-viewer.js') }}"></script>
 {% endblock %}

@@ -2100,3 +2100,48 @@ html {
         min-height: 40px;
     }
 }
+
+/* Visionneuse PDF */
+#pdf-dialog {
+    width: min(1100px, 96vw);
+    height: 92vh;
+    overflow: hidden;
+}
+
+#pdf-dialog[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+.pdf-bar {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .6rem .9rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.pdf-bar strong {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#pdf-frame {
+    flex: 1;
+    width: 100%;
+    border: 0;
+    background: var(--surface-2);
+}
+
+@media (max-width: 700px) {
+    #pdf-dialog {
+        width: 100vw;
+        height: 100dvh;
+        max-height: none;
+        border-radius: 0;
+    }
+}

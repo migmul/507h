@@ -3,6 +3,17 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.28] - 2026-10-27
+
+### Ajouté
+- Visionneuse PDF intégrée au site : un clic sur un document de la fiche d'un contrat ouvre le PDF dans une modale, avec le viewer PDF.js de Mozilla hébergé sur le site (zoom, pages, recherche, impression). L'en-tête de la modale porte le nom du document, un bouton « Télécharger » et un bouton de fermeture. Sur téléphone, la modale occupe tout l'écran et la page remplit la largeur.
+- Un clic avec Ctrl, Cmd ou la molette sur le nom du document ouvre toujours le PDF dans un onglet du navigateur.
+
+### Modifié
+- `/api/documents/<id>` affiche désormais le PDF au lieu de le télécharger ; `?download=1` force le téléchargement.
+- Les réponses sous `/static/pdfjs/` ont leur propre politique de sécurité : le viewer peut être affiché dans une page du site (`SAMEORIGIN`, `frame-ancestors 'self'`) et ses scripts, workers et décodeurs wasm viennent du site uniquement. Le reste du site garde la politique stricte (`DENY`, `frame-ancestors 'none'`).
+- Le viewer se décharge à la fermeture de la modale.
+
 ## [0.27.2] - 2026-10-26
 
 ### Corrigé

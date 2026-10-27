@@ -423,7 +423,12 @@ function renderDocs() {
     for (const d of editingDocs) {
         const li = document.createElement('li');
         const a = el('a', `${KIND_LABEL[d.kind]} – ${d.name}`);
-        a.href = `/api/documents/${d.id}`;
+        a.href = `/api/documents/${d.id}`;          // clic molette ou « ouvrir dans un onglet » : le PDF s'affiche dans le navigateur
+        a.onclick = (e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+            e.preventDefault();
+            openPdf(d);         // viewer du site (pdf-viewer.js)
+        };
         const del = el('button', 'Retirer', 'ghost danger');
         del.type = 'button';
         del.onclick = async () => {
