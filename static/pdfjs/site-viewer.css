@@ -1,9 +1,14 @@
 /* Habillage du viewer PDF.js pour le site (ajouté par pdf-viewer.js).
-   Le téléchargement est dans l'en-tête de la modale ; l'ouverture d'un fichier local n'a pas de sens ici. */
+   Le téléchargement est dans l'en-tête de la modale ; un contrat n'a pas besoin d'outils d'annotation,
+   d'ouverture de fichier local ni de mode présentation, et la barre d'outils doit tenir sur un téléphone. */
 #openFile,
 #secondaryOpenFile,
 #download,
 #downloadButton,
-#secondaryDownload {
+#secondaryDownload,
+#presentationMode,
+#secondaryPresentationMode,
+[id^="editor"],
+[id^="secondaryEditor"] {
     display: none !important;
 }

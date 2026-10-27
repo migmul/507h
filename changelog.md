@@ -3,6 +3,14 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.28.1] - 2026-10-27
+
+### Corrigé
+- Visionneuse PDF sur téléphone : le bouton « Télécharger » ne prend plus le focus (cadre bleu) à l'ouverture, c'est le viewer qui le reçoit ; l'en-tête de la modale est plus compact, avec un titre sur deux lignes et des marges tenant compte de l'encoche ; la barre d'outils du viewer ne montre plus les outils d'annotation ni le mode présentation, qui n'ont pas de sens pour un contrat.
+
+### Ajouté
+- Réglage `PDF_ON_MOBILE` (`'viewer'` par défaut) : avec `'native'`, un clic sur un document ouvre le PDF dans un onglet, avec la visionneuse de Safari ou de Chrome, au lieu de la modale. L'ordinateur garde toujours la modale.
+
 ## [0.28] - 2026-10-27
 
 ### Ajouté
