@@ -3,6 +3,11 @@
 Toutes les évolutions notables de **507h** sont consignées ici.
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.28.3] - 2026-10-27
+
+### Supprimé
+- Suppresion des locales inutiles
+
 ## [0.28.2] - 2026-10-27
 
 ### Modifié
