@@ -9,7 +9,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - `APP_VERSION` alignée sur la 0.28.3 (restée à 0.28.2 lors de la publication)
 
 ### Supprimé
-- Suppresion des locales inutiles
+- Suppression des locales inutiles
 
 ## [0.28.2] - 2026-10-27
 
@@ -673,11 +673,3 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ### Modifié
 - Le formulaire de contrat n'est plus sur la page principale : il s'ouvre dans une fenêtre modale (`<dialog>`).
-
-## Connu / à faire
-- Le calcul des 507 h n'applique pas les plafonds mensuels d'heures (208 h / 250 h pour l'annexe 8) et ne gère ni les cachets (annexe 10) ni les heures assimilées.
-- Les statistiques répartissent heures et salaires au prorata des jours de chaque contrat : ce ne sont pas les jours réellement travaillés.
-- L'import JSON ne restaure pas les documents PDF (ils restent dans l'archive ZIP d'export).
-- Les virements sont saisis à la main : aucun calcul automatique du montant mensuel.
-- Pas de récupération de mot de passe (nécessite l'envoi d'e-mails) ni de vérification de l'adresse e-mail.
-- Limitation de tentatives en mémoire (1 seul worker gunicorn).
