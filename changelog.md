@@ -5,6 +5,9 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [0.28.3] - 2026-10-27
 
+### Corrigé
+- `APP_VERSION` alignée sur la 0.28.3 (restée à 0.28.2 lors de la publication)
+
 ### Supprimé
 - Suppresion des locales inutiles
 
